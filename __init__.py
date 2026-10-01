@@ -1,0 +1,1 @@
+"""Ollama reference extension bundle."""

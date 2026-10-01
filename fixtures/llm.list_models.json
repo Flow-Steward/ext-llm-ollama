@@ -1,0 +1,23 @@
+{
+  "ok": true,
+  "result": {
+    "models": [
+      {
+        "model_id": "llama3.3:70b",
+        "label": "llama3.3:70b",
+        "capabilities": ["chat", "structured_output"],
+        "supports_structured_output": true,
+        "metadata": { "parameter_size": "70B", "quantization": "Q4_K_M" }
+      },
+      {
+        "model_id": "qwen2.5-coder:32b",
+        "label": "qwen2.5-coder:32b",
+        "capabilities": ["chat", "structured_output"],
+        "supports_structured_output": true,
+        "metadata": { "parameter_size": "32B" }
+      }
+    ],
+    "next_cursor": "",
+    "snapshot_complete": true
+  }
+}

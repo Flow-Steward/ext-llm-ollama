@@ -1,0 +1,19 @@
+{
+  "ok": true,
+  "result": {
+    "structured_output": {
+      "intent": "build_workflow",
+      "confidence": 0.88
+    },
+    "message": {
+      "role": "assistant",
+      "content": "{\"intent\": \"build_workflow\", \"confidence\": 0.88}"
+    },
+    "finish_reason": "stop",
+    "usage": {
+      "input_tokens": 33,
+      "output_tokens": 17,
+      "total_tokens": 50
+    }
+  }
+}

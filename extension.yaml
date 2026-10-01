@@ -1,0 +1,81 @@
+manifest_version: 2
+lifecycle: {data_schema_version: 1, data_migrations: []}
+extension_id: flowsteward.ollama-remote
+kind: tool_provider
+version: 1.0.0
+release_stage: active
+display_name: Remote Ollama LLM Provider
+description: Remote HTTPS LLM provider runtime fronting a remote Ollama endpoint.
+vendor:
+  name: Flow Steward
+  support_url: https://github.com/Flow-Steward/ext-llm-ollama/issues
+  website_url: https://github.com/Flow-Steward/ext-llm-ollama
+listing:
+  category: ai
+  tags:
+    - llm
+    - ollama
+  summary: Reference remote HTTPS LLM provider runtime for Ollama model catalog integration.
+features:
+  - tool
+  - llm_provider
+required_scopes:
+  - extension:invoke
+machine_auth:
+  service_account_key: svc_ext_ollama_remote
+  required_scopes:
+    - extension:invoke
+account_scope:
+  scope_type: account
+  description: Remote Ollama provider credentials are account-scoped.
+entrypoint:
+  mode: remote_https
+  remote:
+    base_url: ""
+health:
+  command:
+    - python3
+    - health.py
+  timeout_seconds: 5
+ui_manifest: ui/ui_manifest.yaml
+runtime:
+  contract_version: extension_host_v1
+  compatibility:
+    platform_min: 1.0.0
+  remote:
+    base_url: ""
+    endpoints:
+      handshake: /handshake
+      health: /health
+      query: /queries/{query_id}
+      action: /actions/{action_id}
+      emit_event: /events
+  extension_contract_v2:
+    llm_provider:
+      schema_version: llm_provider_extension_v1
+      supplier_key: ollama_remote
+      supplier_label: Ollama
+      runtime_mode: remote_https
+      credential_provider_key: ollama_remote
+      required_provider_secrets:
+        - runtime_bearer_token
+      optional_provider_secrets:
+        - bearer_token
+      required_connection_config:
+        - upstream_base_url
+      operations:
+        list_models:
+          query_id: llm.list_models
+        chat:
+          action_id: llm.chat
+        structured_chat:
+          action_id: llm.chat_structured
+          optional: true
+      model_grouping:
+        strategy: endpoint
+        owner_key_field: upstream_owner_key
+        owner_label_field: upstream_owner_label
+      required_capabilities_for_enablement:
+        - chat
+        - tools
+        - structured_output
