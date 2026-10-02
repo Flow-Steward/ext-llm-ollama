@@ -57,6 +57,25 @@ tag list plus an offset. If the list changes between pages, discovery fails
 with `invalid_response` and Flow Steward keeps the previous catalog. Run
 **Discover models** again.
 
+## Which models can work
+
+Flow Steward routes work only to models that can chat, call tools and answer
+in its structured format. The list of required capabilities is kept in one
+place in Flow Steward (`REQUIRED_ROUTING_CAPABILITIES`) and checked live by
+verification.
+
+This extension reports a model's capabilities from Ollama's `/api/show`.
+A model whose `capabilities` include `tools` is offered with chat, tools and
+structured output (structured output rides on one forced tool call); a model
+without `tools` is reported as chat only. When `/api/show` says nothing, the
+model is reported with all three and verification decides.
+
+Models the provider says lack a required capability are marked, for example
+"Not supported: no tool calling", and hidden by default; **Show all models**
+lists them too. What the provider reports is only a first filter.
+Verification is the final authority: a hidden model can still be tried, and a
+listed model can still fail.
+
 ## How models are verified
 
 Flow Steward, not this extension, verifies a model before it can be enabled. It
