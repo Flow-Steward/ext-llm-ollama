@@ -88,6 +88,11 @@ reason. A verification lasts 30 days.
   (for example `glm-5.3-flash`, `deepseek-v4.1-flash`) were refused.
 - **`/api/tags` is public on ollama.com.** The model list loads even with a
   wrong key. A wrong key shows up at verification as `authentication_error`.
+- **Verification can be flaky for some models.** Verification runs a real
+  model, so its result can vary. `gpt-oss:120b` passed most runs but about one
+  in five failed the tool-result step (`capability_mismatch`), because it
+  summarised the tool call without repeating its result. **Reverify** repeats
+  the check; the check itself is not relaxed.
 
 ## Self-hosted Ollama
 
