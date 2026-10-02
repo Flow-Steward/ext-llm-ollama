@@ -50,48 +50,86 @@ def _read_bounded(stream: Any) -> bytes:
     return raw
 
 
-def _public_https_url(raw_url: str) -> tuple[str, str, int, str]:
-    """Validate an upstream URL and return a DNS-pinned HTTPS request target."""
+# Private ranges a self-hosted Ollama may live in when the administrator allows
+# private addresses (FS_ALLOW_PRIVATE_REMOTE_URLS on the Flow Steward host).
+# Loopback is accepted separately. Link-local (169.254.0.0/16 with the cloud
+# metadata service, fe80::/10), CGNAT, multicast, reserved and unspecified
+# addresses are never accepted.
+_PRIVATE_NETWORKS = (
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+    ipaddress.ip_network("fc00::/7"),
+)
+
+
+def _is_private_endpoint(candidate: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    if candidate.is_loopback:
+        return True
+    if candidate.is_link_local or candidate.is_multicast or candidate.is_unspecified:
+        return False
+    return any(candidate in network for network in _PRIVATE_NETWORKS)
+
+
+def _is_public_endpoint(candidate: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    return bool(
+        candidate.is_global
+        and not candidate.is_private
+        and not candidate.is_reserved
+        and not candidate.is_link_local
+        and not candidate.is_loopback
+        and not candidate.is_multicast
+        and not candidate.is_unspecified
+        and not getattr(candidate, "is_site_local", False)
+    )
+
+
+def _upstream_target(
+    raw_url: str, *, allow_private: bool = False
+) -> tuple[str, str, str, int, str]:
+    """Validate an upstream URL and return ``(scheme, host, pinned_ip, port, path)``.
+
+    Every DNS answer is checked once and the request is then pinned to the
+    first checked address, so a second lookup cannot rebind it elsewhere.
+
+    - By default only public HTTPS endpoints are accepted.
+    - With ``allow_private`` (the host's ``network_policy``), loopback and
+      private-range endpoints are accepted too, over ``http`` or ``https``;
+      ``http`` still needs every answer to be private, so a public endpoint
+      always uses TLS.
+    """
     parsed = urlsplit(str(raw_url or ""))
     hostname = (parsed.hostname or "").rstrip(".").lower()
-    if (
-        parsed.scheme != "https"
-        or not hostname
-        or parsed.username
-        or parsed.password
-        or hostname == "localhost"
-        or hostname.endswith(".local")
-    ):
+    scheme = parsed.scheme.lower()
+    if scheme not in {"http", "https"} or not hostname or parsed.username or parsed.password:
         raise RuntimeError("model_unavailable")
-    port = parsed.port or 443
+    if scheme == "http" and not allow_private:
+        raise RuntimeError("model_unavailable")
+    if not allow_private and (hostname == "localhost" or hostname.endswith(".local")):
+        raise RuntimeError("model_unavailable")
+    port = parsed.port or (443 if scheme == "https" else 80)
     try:
         addresses = socket.getaddrinfo(hostname, port, type=socket.SOCK_STREAM)
     except socket.gaierror as exc:
         raise RuntimeError("upstream_error") from exc
-    public_ips: list[str] = []
+    checked: list[str] = []
+    all_private = True
     for _family, _socktype, _proto, _canonname, address in addresses:
         try:
-            candidate = ipaddress.ip_address(address[0])
+            candidate = ipaddress.ip_address(str(address[0]).split("%", 1)[0])
         except ValueError as exc:
             raise RuntimeError("model_unavailable") from exc
-        if (
-            not candidate.is_global
-            or candidate.is_private
-            or candidate.is_reserved
-            or candidate.is_link_local
-            or candidate.is_loopback
-            or candidate.is_multicast
-            or candidate.is_unspecified
-            or getattr(candidate, "is_site_local", False)
-        ):
+        if _is_public_endpoint(candidate):
+            all_private = False
+        elif not (allow_private and _is_private_endpoint(candidate)):
             raise RuntimeError("model_unavailable")
-        public_ips.append(str(candidate))
-    if not public_ips:
+        checked.append(str(candidate))
+    if not checked or (scheme == "http" and not all_private):
         raise RuntimeError("model_unavailable")
     path = parsed.path or "/"
     if parsed.query:
         path = f"{path}?{parsed.query}"
-    return hostname, public_ips[0], port, path
+    return scheme, hostname, checked[0], port, path
 
 
 def _request_json(
@@ -101,14 +139,19 @@ def _request_json(
     headers: dict[str, str],
     body: Any = None,
     timeout_seconds: int | float = 60,
+    allow_private: bool = False,
 ) -> dict[str, Any]:
-    hostname, pinned_ip, port, path = _public_https_url(url)
+    scheme, hostname, pinned_ip, port, path = _upstream_target(url, allow_private=allow_private)
     data = json.dumps(body).encode() if body is not None else None
-    connection = http.client.HTTPSConnection(
-        hostname, port, timeout=timeout_seconds, context=ssl.create_default_context()
-    )
+    connection: http.client.HTTPConnection
+    if scheme == "https":
+        connection = http.client.HTTPSConnection(
+            hostname, port, timeout=timeout_seconds, context=ssl.create_default_context()
+        )
+    else:  # only reachable for a private endpoint the host allowed
+        connection = http.client.HTTPConnection(hostname, port, timeout=timeout_seconds)
     # Keep the original hostname for TLS SNI/certificate verification while
-    # pinning this request's TCP connection to the public address just checked.
+    # pinning this request's TCP connection to the address just checked.
     connection._create_connection = lambda _address, timeout, source_address=None: (
         socket.create_connection(  # type: ignore[attr-defined]
             (pinned_ip, port), timeout, source_address
@@ -116,7 +159,7 @@ def _request_json(
     )
     try:
         host_header = f"[{hostname}]" if ":" in hostname else hostname
-        if port != 443:
+        if port != (443 if scheme == "https" else 80):
             host_header = f"{host_header}:{port}"
         connection.request(method, path, body=data, headers={**headers, "Host": host_header})
         response = connection.getresponse()
@@ -177,19 +220,22 @@ def _failure_response(code: str, *, request_semantics: str) -> dict[str, Any]:
     }
 
 
-def _connection(request: dict[str, Any]) -> tuple[str, dict[str, str]]:
+def _connection(request: dict[str, Any]) -> tuple[str, dict[str, str], bool]:
+    """Return the base URL, request headers and whether private hosts are allowed."""
+    policy = request.get("network_policy") if isinstance(request, dict) else {}
+    allow_private = isinstance(policy, dict) and policy.get("allow_private_addresses") is True
     connection = request.get("connection") if isinstance(request, dict) else {}
     config = connection.get("connection_config") if isinstance(connection, dict) else {}
     credentials = connection.get("credentials") if isinstance(connection, dict) else {}
     base_url = str((config or {}).get("upstream_base_url") or "").strip().rstrip("/")
     base_url = base_url or DEFAULT_BASE_URL
-    _public_https_url(base_url)
+    _upstream_target(base_url, allow_private=allow_private)
     headers = {"Content-Type": "application/json"}
     # Ollama's hosted API needs a key; a self-hosted endpoint may not.
     token = str((credentials or {}).get("api_key") or "").strip()
     if token:
         headers["Authorization"] = f"Bearer {token}"
-    return base_url, headers
+    return base_url, headers, allow_private
 
 
 def _pagination(request: dict[str, Any]) -> tuple[str, int, int]:
@@ -335,7 +381,7 @@ def _discovered_capabilities(details: dict[str, Any]) -> list[str]:
 
 
 def list_models(request: dict[str, Any]) -> dict[str, Any]:
-    base_url, headers = _connection(request)
+    base_url, headers, allow_private = _connection(request)
     deadline = time.monotonic() + MAX_DISCOVERY_SECONDS
     expected_fingerprint, offset, limit = _pagination(request)
     tags = _request_json(
@@ -343,6 +389,7 @@ def list_models(request: dict[str, Any]) -> dict[str, Any]:
         method="GET",
         headers=headers,
         timeout_seconds=MAX_DISCOVERY_SECONDS,
+        allow_private=allow_private,
     ).get("models", [])
     if not isinstance(tags, list) or len(tags) > MAX_DISCOVERY_MODELS:
         raise RuntimeError("invalid_response")
@@ -372,6 +419,7 @@ def list_models(request: dict[str, Any]) -> dict[str, Any]:
                 headers=headers,
                 body={"model": name},
                 timeout_seconds=remaining,
+                allow_private=allow_private,
             )
         except RuntimeError as exc:
             if str(exc) == "timeout" or time.monotonic() >= deadline:
@@ -473,7 +521,7 @@ def _structured_result(message: dict[str, Any]) -> Any:
 
 def chat(request: dict[str, Any], *, structured: bool = False) -> dict[str, Any]:
     payload = dict(request.get("input") or {})
-    base_url, headers = _connection(request)
+    base_url, headers, allow_private = _connection(request)
     body: dict[str, Any] = {
         "model": payload.get("model_id"),
         "messages": _ollama_messages(payload.get("messages")),
@@ -520,7 +568,13 @@ def chat(request: dict[str, Any], *, structured: bool = False) -> dict[str, Any]
                 ),
             },
         ]
-    response = _request_json(f"{base_url}/api/chat", method="POST", headers=headers, body=body)
+    response = _request_json(
+        f"{base_url}/api/chat",
+        method="POST",
+        headers=headers,
+        body=body,
+        allow_private=allow_private,
+    )
     if response.get("done") is not True or not isinstance(response.get("message"), dict):
         raise RuntimeError("invalid_response")
     message = _canonical_message(response["message"])

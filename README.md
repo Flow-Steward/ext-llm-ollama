@@ -2,7 +2,9 @@
 
 Use Ollama models in Flow Steward agents. The extension connects either to
 **Ollama's hosted API** (`https://ollama.com`, needs an API key) or to **your own
-Ollama server** on a public HTTPS address. Models you add appear in Flow
+Ollama server**: on a public HTTPS address, or on your machine or local network
+once an administrator allows private addresses (see
+[Self-hosted Ollama](#self-hosted-ollama)). Models you add appear in Flow
 Steward's model catalog: you can pick them for an agent or make one a project's
 default model.
 
@@ -10,6 +12,9 @@ default model.
 - Kind: `tool_provider` with the `llm_provider` contract (`llm_provider_extension_v1`)
 - Runs as an ordinary Flow Steward extension subprocess. There is no separate
   service to deploy, no runtime URL and no runtime token.
+- Needs Flow Steward's extension host contract 1.1.0 or newer
+  (`runtime.compatibility.platform_min: 1.1.0`); an older host marks the bundle
+  incompatible.
 
 ## Setup
 
@@ -19,7 +24,7 @@ default model.
 
    | Field | Required | Meaning |
    | --- | --- | --- |
-   | **Base URL** (`upstream_base_url`) | no | Leave empty for Ollama's hosted API, `https://ollama.com`. For your own server, its public HTTPS address, e.g. `https://ollama.example.com`. |
+   | **Base URL** (`upstream_base_url`) | no | Leave empty for Ollama's hosted API, `https://ollama.com`. For your own server, its address, e.g. `https://ollama.example.com`, or `http://host.docker.internal:11434` for an Ollama on the machine running Flow Steward (see [Self-hosted Ollama](#self-hosted-ollama)). |
    | **API key** (`api_key`) | no | Your key from [ollama.com/settings/keys](https://ollama.com/settings/keys). The hosted API needs one; a self-hosted server usually does not. |
 
    The key is stored encrypted, scoped to your Flow Steward account, and only
@@ -84,18 +89,49 @@ reason. A verification lasts 30 days.
 - **`/api/tags` is public on ollama.com.** The model list loads even with a
   wrong key. A wrong key shows up at verification as `authentication_error`.
 
+## Self-hosted Ollama
+
+An Ollama on a public HTTPS address works with no extra setup: put its URL in
+**Base URL**, and an API key only if your server checks one.
+
+An Ollama on your own machine or local network (`localhost`, `127.0.0.1`,
+`192.168.x.x`, `10.x.x.x`, `172.16–31.x.x`, `fc00::/7`) is refused by default.
+A Flow Steward administrator can allow it with the server setting
+`FS_ALLOW_PRIVATE_REMOTE_URLS=1` (in the installation's `.env`, then restart
+Flow Steward). Until then, saving such a URL is rejected with a message that
+names this setting. With the setting on:
+
+- private and loopback addresses may use `http://` or `https://`;
+- public addresses still need `https://`;
+- link-local addresses, including the cloud metadata service `169.254.169.254`
+  and `fe80::/10`, are refused anyway, as are CGNAT, multicast, reserved and
+  unspecified addresses.
+
+The setting is the host's decision. Flow Steward passes it to the extension as
+`runtime_context.network_policy.allow_private_addresses`, and the extension never
+reads host environment for it.
+
+**`localhost` is the Flow Steward container, not your computer.** Flow Steward
+(the Compact install in particular) runs in Docker, so `http://localhost:11434`
+reaches the container itself, where no Ollama runs. To reach an Ollama on the
+machine running Docker:
+
+- Docker Desktop (macOS, Windows): use `http://host.docker.internal:11434`.
+- Linux: add `extra_hosts: ["host.docker.internal:host-gateway"]` to the Flow
+  Steward service, or use the host's LAN address, e.g. `http://192.168.1.20:11434`.
+- Start Ollama so it listens beyond its own loopback: `OLLAMA_HOST=0.0.0.0 ollama serve`.
+
 ## Network safety
 
-The base URL must be public HTTPS. `http://`, `localhost`, `*.local`, URLs with
-credentials, and hosts that resolve to any loopback, private, link-local,
-CGNAT, multicast or reserved address are refused, including when only one of
-several DNS answers is unsafe. Each request is pinned to the address it was
-checked against, and TLS still verifies the hostname. Redirects are never
+By default the base URL must be public HTTPS. `http://`, `localhost`,
+`*.local`, URLs with credentials, and hosts that resolve to any loopback,
+private, link-local, CGNAT, multicast or reserved address are refused,
+including when only one of several DNS answers is unsafe. With private
+addresses allowed, the rules above apply instead. Every name is resolved once
+and each request is pinned to the address that was checked, so DNS cannot
+rebind it elsewhere, and TLS still verifies the hostname. Redirects are never
 followed, so the key cannot be forwarded elsewhere. Upstream bodies are capped
 at 5 MiB.
-
-Because of this, an Ollama on `localhost` or a LAN address cannot be used. Put
-it behind a public HTTPS address if you need it.
 
 ## Errors
 

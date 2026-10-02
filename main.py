@@ -43,16 +43,28 @@ def handle(payload: dict[str, Any]) -> tuple[dict[str, Any], int]:
         "connection_config": resources.object("connection_config"),
         "credentials": resources.object("provider_secrets"),
     }
+    # The host's network decision (FS_ALLOW_PRIVATE_REMOTE_URLS); this
+    # subprocess never reads host environment for it.
+    runtime_context = _object(payload.get("runtime_context"))
+    network_policy = _object(runtime_context.get("network_policy"))
     mode = str(payload.get("mode") or "").strip()
     if mode == "query":
         query = _object(payload.get("query"))
         operation = QUERIES.get(str(query.get("query_id") or "").strip())
-        request = {"connection": connection, "query": _object(query.get("params"))}
+        request = {
+            "connection": connection,
+            "network_policy": network_policy,
+            "query": _object(query.get("params")),
+        }
         semantics = "safe_read"
     elif mode == "action":
         action = _object(payload.get("action"))
         operation = ACTIONS.get(str(action.get("action_id") or "").strip())
-        request = {"connection": connection, "input": _object(action.get("input"))}
+        request = {
+            "connection": connection,
+            "network_policy": network_policy,
+            "input": _object(action.get("input")),
+        }
         semantics = "mutation"
     else:
         operation, request, semantics = None, {}, "safe_read"

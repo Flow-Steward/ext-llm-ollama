@@ -81,3 +81,10 @@ def test_ui_pages_listed_in_the_ui_manifest_exist() -> None:
 
 def test_version_is_semver() -> None:
     assert re.fullmatch(r"\d+\.\d+\.\d+", MANIFEST["version"])
+
+
+def test_it_requires_a_host_that_runs_llm_providers_in_process() -> None:
+    # Extension host contract 1.1.0 is the first that runs an llm_provider as a
+    # subprocess and accepts optional_connection_config; an older host marks the
+    # bundle incompatible ("below required minimum") instead of misreading it.
+    assert MANIFEST["runtime"]["compatibility"]["platform_min"] == "1.1.0"

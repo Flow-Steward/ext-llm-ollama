@@ -1,4 +1,4 @@
 page_id: provider
 title: Ollama
-description: Connect Ollama in the LLM provider panel on this page. Enter an API key for Ollama's hosted API, or a base URL (and a key if it needs one) for your own Ollama server on a public HTTPS address. Then discover models and add the ones you want.
+description: Connect Ollama in the LLM provider panel on this page. Enter an API key for Ollama's hosted API, or a base URL (and a key if it needs one) for your own Ollama server. An Ollama on the machine running Flow Steward is http://host.docker.internal:11434, not localhost; private addresses need an administrator to set FS_ALLOW_PRIVATE_REMOTE_URLS=1. Then discover models and add the ones you want.
 components: []

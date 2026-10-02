@@ -26,7 +26,11 @@ def _query(query_id: str, params: dict | None = None) -> dict:
     return {
         "mode": "query",
         "query": {"query_id": query_id, "params": params or {}},
-        "runtime_context": {"account_id": "acc-1", "resources": RESOURCES},
+        "runtime_context": {
+            "account_id": "acc-1",
+            "resources": RESOURCES,
+            "network_policy": {"allow_private_addresses": True},
+        },
     }
 
 
@@ -74,6 +78,7 @@ def test_a_query_gets_its_params_and_the_provider_settings(main, recorded) -> No
             "connection_config": {"upstream_base_url": "https://llm.example.com"},
             "credentials": {"api_key": "key-1"},
         },
+        "network_policy": {"allow_private_addresses": True},
         "query": {"cursor": "", "limit": 200},
     }
 

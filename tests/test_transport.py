@@ -49,7 +49,9 @@ def _connection_class(*, response=None, error: Exception | None = None, captured
 @pytest.fixture
 def public_target(monkeypatch, runtime):
     monkeypatch.setattr(
-        runtime, "_public_https_url", lambda _url: ("ollama.example", "203.0.113.8", 443, "/x")
+        runtime,
+        "_upstream_target",
+        lambda _url, **_kwargs: ("https", "ollama.example", "203.0.113.8", 443, "/x"),
     )
 
 
@@ -71,7 +73,7 @@ def public_target(monkeypatch, runtime):
 )
 def test_non_public_https_urls_are_rejected(runtime, url) -> None:
     with pytest.raises(RuntimeError, match="model_unavailable"):
-        runtime._public_https_url(url)
+        runtime._upstream_target(url)
 
 
 @pytest.mark.parametrize(
@@ -95,7 +97,7 @@ def test_non_public_dns_answers_are_rejected(monkeypatch, runtime, address, fami
     )
 
     with pytest.raises(RuntimeError, match="model_unavailable"):
-        runtime._public_https_url("https://ollama.example")
+        runtime._upstream_target("https://ollama.example")
 
 
 def test_one_non_public_answer_among_public_ones_is_rejected(monkeypatch, runtime) -> None:
@@ -109,7 +111,7 @@ def test_one_non_public_answer_among_public_ones_is_rejected(monkeypatch, runtim
     )
 
     with pytest.raises(RuntimeError, match="model_unavailable"):
-        runtime._public_https_url("https://ollama.example")
+        runtime._upstream_target("https://ollama.example")
 
 
 def test_public_answers_resolve_to_a_pinned_target(monkeypatch, runtime) -> None:
@@ -122,7 +124,8 @@ def test_public_answers_resolve_to_a_pinned_target(monkeypatch, runtime) -> None
         ],
     )
 
-    assert runtime._public_https_url("https://ollama.example/api/tags?x=1") == (
+    assert runtime._upstream_target("https://ollama.example/api/tags?x=1") == (
+        "https",
         "ollama.example",
         "8.8.8.8",
         443,
@@ -137,7 +140,7 @@ def test_dns_failure_is_an_upstream_error(monkeypatch, runtime) -> None:
     monkeypatch.setattr(runtime.socket, "getaddrinfo", fail)
 
     with pytest.raises(RuntimeError, match="upstream_error"):
-        runtime._public_https_url("https://ollama.example")
+        runtime._upstream_target("https://ollama.example")
 
 
 # --------------------------------------------------------------------------- #
@@ -170,7 +173,9 @@ def test_request_keeps_the_hostname_for_tls_and_dials_the_checked_address(
 def test_request_names_a_nondefault_port_in_the_host_header(monkeypatch, runtime) -> None:
     captured: dict = {}
     monkeypatch.setattr(
-        runtime, "_public_https_url", lambda _url: ("ollama.example", "8.8.8.8", 8443, "/")
+        runtime,
+        "_upstream_target",
+        lambda _url, **_kwargs: ("https", "ollama.example", "8.8.8.8", 8443, "/"),
     )
     monkeypatch.setattr(
         runtime.http.client, "HTTPSConnection", _connection_class(captured=captured)
@@ -261,19 +266,22 @@ def test_an_oversized_body_is_refused_before_parsing(monkeypatch, runtime, publi
 
 def test_no_base_url_means_ollamas_hosted_api(monkeypatch, runtime) -> None:
     checked: list[str] = []
-    monkeypatch.setattr(runtime, "_public_https_url", checked.append)
+    monkeypatch.setattr(
+        runtime, "_upstream_target", lambda url, **kwargs: checked.append((url, kwargs))
+    )
 
-    base_url, headers = runtime._connection({"connection": {}})
+    base_url, headers, allow_private = runtime._connection({"connection": {}})
 
     assert base_url == "https://ollama.com"
-    assert checked == ["https://ollama.com"]
+    assert checked == [("https://ollama.com", {"allow_private": False})]
+    assert allow_private is False
     assert "Authorization" not in headers
 
 
 def test_a_custom_base_url_and_key_are_used(monkeypatch, runtime) -> None:
-    monkeypatch.setattr(runtime, "_public_https_url", lambda _url: None)
+    monkeypatch.setattr(runtime, "_upstream_target", lambda _url, **_kwargs: None)
 
-    base_url, headers = runtime._connection(
+    base_url, headers, _ = runtime._connection(
         {
             "connection": {
                 "connection_config": {"upstream_base_url": " https://llm.example.com/ "},
@@ -290,4 +298,149 @@ def test_an_unsafe_custom_base_url_is_refused_before_any_request(runtime) -> Non
     with pytest.raises(RuntimeError, match="model_unavailable"):
         runtime._connection(
             {"connection": {"connection_config": {"upstream_base_url": "http://10.0.0.5"}}}
+        )
+
+
+# --------------------------------------------------------------------------- #
+# Self-hosted Ollama on a private network                                      #
+# --------------------------------------------------------------------------- #
+
+
+def _resolve_to(monkeypatch, runtime, *addresses: str) -> None:
+    monkeypatch.setattr(
+        runtime.socket,
+        "getaddrinfo",
+        lambda *_a, **_k: [
+            (
+                socket.AF_INET6 if ":" in address else socket.AF_INET,
+                socket.SOCK_STREAM,
+                6,
+                "",
+                (address, 11434),
+            )
+            for address in addresses
+        ],
+    )
+
+
+@pytest.mark.parametrize(
+    ("url", "address"),
+    [
+        ("http://localhost:11434", "127.0.0.1"),
+        ("http://192.168.1.20:11434", "192.168.1.20"),
+        ("http://ollama.lan:11434", "10.0.0.7"),
+        ("https://ollama.lan", "172.16.4.2"),
+        # Docker Desktop's name for the machine running the Compact container.
+        ("http://host.docker.internal:11434", "fdc4:f303:9324::254"),
+    ],
+)
+def test_private_endpoints_are_refused_unless_the_host_allows_them(
+    monkeypatch, runtime, url, address
+) -> None:
+    _resolve_to(monkeypatch, runtime, address)
+
+    with pytest.raises(RuntimeError, match="model_unavailable"):
+        runtime._upstream_target(url)
+    scheme, host, pinned, _port, _path = runtime._upstream_target(url, allow_private=True)
+
+    assert (scheme, pinned) == (url.split(":", 1)[0], address)
+
+
+@pytest.mark.parametrize("allow_private", [False, True])
+def test_a_public_endpoint_always_needs_https(monkeypatch, runtime, allow_private) -> None:
+    _resolve_to(monkeypatch, runtime, "8.8.8.8")
+
+    with pytest.raises(RuntimeError, match="model_unavailable"):
+        runtime._upstream_target("http://ollama.example.com", allow_private=allow_private)
+
+
+def test_plain_http_needs_every_answer_to_be_private(monkeypatch, runtime) -> None:
+    _resolve_to(monkeypatch, runtime, "10.0.0.7", "8.8.8.8")
+
+    with pytest.raises(RuntimeError, match="model_unavailable"):
+        runtime._upstream_target("http://split.example.com", allow_private=True)
+
+
+@pytest.mark.parametrize("allow_private", [False, True])
+@pytest.mark.parametrize(
+    "address",
+    ["169.254.169.254", "169.254.1.1", "fe80::1", "100.64.0.1", "0.0.0.0", "224.0.0.1"],
+)
+def test_metadata_and_link_local_addresses_are_refused_either_way(
+    monkeypatch, runtime, address, allow_private
+) -> None:
+    _resolve_to(monkeypatch, runtime, address)
+
+    with pytest.raises(RuntimeError, match="model_unavailable"):
+        runtime._upstream_target("http://ollama.lan:11434", allow_private=allow_private)
+
+
+def test_a_private_endpoint_is_reached_over_plain_http_pinned_to_its_address(
+    monkeypatch, runtime
+) -> None:
+    captured: dict = {}
+    dialed: list = []
+    _resolve_to(monkeypatch, runtime, "192.168.1.20")
+
+    class _Plain:
+        def __init__(self, host, port, **kwargs):
+            captured.update(host=host, port=port, **kwargs)
+            self._create_connection = None
+
+        def request(self, method, path, **kwargs):
+            captured.update(method=method, path=path, **kwargs)
+            self._create_connection(("ignored", 0), 5)
+
+        def getresponse(self):
+            return _Response(200, b'{"models": []}')
+
+        def close(self):
+            return None
+
+    monkeypatch.setattr(runtime.http.client, "HTTPConnection", _Plain)
+    monkeypatch.setattr(
+        runtime.http.client,
+        "HTTPSConnection",
+        lambda *_a, **_k: pytest.fail("a plain-http endpoint must not use TLS"),
+    )
+    monkeypatch.setattr(
+        runtime.socket, "create_connection", lambda address, *_a, **_k: dialed.append(address)
+    )
+
+    result = runtime._request_json(
+        "http://ollama.lan:11434/api/tags", method="GET", headers={}, allow_private=True
+    )
+
+    assert result == {"models": []}
+    assert captured["headers"]["Host"] == "ollama.lan:11434"
+    assert dialed == [("192.168.1.20", 11434)]  # resolved once, then pinned
+
+
+def test_the_host_policy_reaches_the_url_guard(monkeypatch, runtime) -> None:
+    seen: list = []
+    monkeypatch.setattr(
+        runtime, "_upstream_target", lambda url, **kwargs: seen.append((url, kwargs))
+    )
+
+    _, _, allow_private = runtime._connection(
+        {
+            "network_policy": {"allow_private_addresses": True},
+            "connection": {"connection_config": {"upstream_base_url": "http://ollama.lan:11434"}},
+        }
+    )
+
+    assert allow_private is True
+    assert seen == [("http://ollama.lan:11434", {"allow_private": True})]
+
+
+@pytest.mark.parametrize("policy", [None, {}, {"allow_private_addresses": "yes"}, "on"])
+def test_anything_but_an_explicit_true_keeps_private_hosts_refused(runtime, policy) -> None:
+    with pytest.raises(RuntimeError, match="model_unavailable"):
+        runtime._connection(
+            {
+                "network_policy": policy,
+                "connection": {
+                    "connection_config": {"upstream_base_url": "http://127.0.0.1:11434"}
+                },
+            }
         )

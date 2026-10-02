@@ -69,7 +69,9 @@ def ollama(monkeypatch, runtime) -> FakeOllama:
     monkeypatch.setattr(runtime, "_request_json", fake)
     # Base URLs are still validated; resolve every host to a public address.
     monkeypatch.setattr(
-        runtime, "_public_https_url", lambda url: ("ollama.example", "203.0.113.8", 443, "/")
+        runtime,
+        "_upstream_target",
+        lambda url, **_kwargs: ("https", "ollama.example", "203.0.113.8", 443, "/"),
     )
     return fake
 

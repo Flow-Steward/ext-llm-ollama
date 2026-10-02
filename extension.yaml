@@ -5,7 +5,7 @@ kind: tool_provider
 version: 1.1.0
 release_stage: active
 display_name: Ollama LLM Provider
-description: Use models from Ollama's hosted API, or from your own Ollama server on a public HTTPS address, in Flow Steward agents.
+description: Use models from Ollama's hosted API, or from your own Ollama server, in Flow Steward agents.
 vendor:
   name: Flow Steward
   support_url: https://github.com/Flow-Steward/ext-llm-ollama/issues
@@ -44,7 +44,7 @@ python_requirements: []
 runtime:
   contract_version: extension_host_v1
   compatibility:
-    platform_min: 1.0.0
+    platform_min: 1.1.0
   extension_contract_v2:
     llm_provider:
       schema_version: llm_provider_extension_v1
