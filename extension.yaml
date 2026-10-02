@@ -2,10 +2,10 @@ manifest_version: 2
 lifecycle: {data_schema_version: 1, data_migrations: []}
 extension_id: flowsteward.ollama-remote
 kind: tool_provider
-version: 1.0.0
+version: 1.1.0
 release_stage: active
-display_name: Remote Ollama LLM Provider
-description: Remote HTTPS LLM provider runtime fronting a remote Ollama endpoint.
+display_name: Ollama LLM Provider
+description: Use models from Ollama's hosted API, or from your own Ollama server on a public HTTPS address, in Flow Steward agents.
 vendor:
   name: Flow Steward
   support_url: https://github.com/Flow-Steward/ext-llm-ollama/issues
@@ -15,7 +15,7 @@ listing:
   tags:
     - llm
     - ollama
-  summary: Reference remote HTTPS LLM provider runtime for Ollama model catalog integration.
+  summary: Connect Ollama with an API key, load its model list, and add models to the Flow Steward model catalog.
 features:
   - tool
   - llm_provider
@@ -27,41 +27,36 @@ machine_auth:
     - extension:invoke
 account_scope:
   scope_type: account
-  description: Remote Ollama provider credentials are account-scoped.
+  description: Ollama provider settings are account-scoped.
 entrypoint:
-  mode: remote_https
-  remote:
-    base_url: ""
+  mode: subprocess
+  command:
+    - python3
+    - main.py
+  timeout_seconds: 120
 health:
   command:
     - python3
     - health.py
   timeout_seconds: 5
 ui_manifest: ui/ui_manifest.yaml
+python_requirements: []
 runtime:
   contract_version: extension_host_v1
   compatibility:
     platform_min: 1.0.0
-  remote:
-    base_url: ""
-    endpoints:
-      handshake: /handshake
-      health: /health
-      query: /queries/{query_id}
-      action: /actions/{action_id}
-      emit_event: /events
   extension_contract_v2:
     llm_provider:
       schema_version: llm_provider_extension_v1
       supplier_key: ollama_remote
       supplier_label: Ollama
-      runtime_mode: remote_https
+      runtime_mode: subprocess
       credential_provider_key: ollama_remote
-      required_provider_secrets:
-        - runtime_bearer_token
+      required_provider_secrets: []
       optional_provider_secrets:
-        - bearer_token
-      required_connection_config:
+        - api_key
+      required_connection_config: []
+      optional_connection_config:
         - upstream_base_url
       operations:
         list_models:

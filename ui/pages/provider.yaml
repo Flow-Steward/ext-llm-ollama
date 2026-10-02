@@ -1,4 +1,4 @@
 page_id: provider
-title: Remote Ollama
-description: Remote Ollama LLM provider connection reference.
+title: Ollama
+description: Connect Ollama in the LLM provider panel on this page. Enter an API key for Ollama's hosted API, or a base URL (and a key if it needs one) for your own Ollama server on a public HTTPS address. Then discover models and add the ones you want.
 components: []
