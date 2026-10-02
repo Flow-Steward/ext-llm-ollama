@@ -3,13 +3,19 @@
   "result": {
     "message": {
       "role": "assistant",
-      "content": "Hello from llama3.3:70b on the remote Ollama endpoint."
+      "content": "basic-ok",
+      "continuation": {
+        "thinking": "short"
+      }
     },
     "finish_reason": "stop",
     "usage": {
-      "input_tokens": 10,
-      "output_tokens": 11,
-      "total_tokens": 21
+      "input_tokens": 11,
+      "output_tokens": 5,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "total_tokens": 16
     }
-  }
+  },
+  "errors": []
 }

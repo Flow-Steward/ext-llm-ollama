@@ -1,63 +1,151 @@
-# Remote Ollama LLM Provider — reference extension
+# Ollama LLM Provider for Flow Steward
 
-Status: active reference bundle. It includes a runnable stdlib remote runtime,
-canonical wire handlers, fixtures, and contract tests. Hosting the runtime is
-an operator responsibility and is intentionally outside this bundle.
+Use Ollama models in Flow Steward agents. The extension connects either to
+**Ollama's hosted API** (`https://ollama.com`, needs an API key) or to **your own
+Ollama server** on a public HTTPS address. Models you add appear in Flow
+Steward's model catalog: you can pick them for an agent or make one a project's
+default model.
 
-## Install boundary
+- Extension id: `flowsteward.ollama-remote`
+- Kind: `tool_provider` with the `llm_provider` contract (`llm_provider_extension_v1`)
+- Runs as an ordinary Flow Steward extension subprocess. There is no separate
+  service to deploy, no runtime URL and no runtime token.
 
-The manifest deliberately contains no default runtime URL. Installation requires
-an explicit public HTTPS `remote_base_url` for the extension runtime. The
-account-scoped public HTTPS Ollama `upstream_base_url` is passed as extension
-configuration; a bearer token is optional and uses the existing encrypted
-`secret_refs` flow. Private IPs, LAN/localhost, `.local`, and HTTP endpoints
-are intentionally unsupported.
+## Setup
 
-The bundled stdlib process is an origin server and binds to `127.0.0.1:8090`
-by default. Production hosting must place it behind a reverse proxy or load
-balancer that terminates TLS and exposes the configured public HTTPS
-`remote_base_url`. Set `FS_EXTENSION_BIND_HOST` only for an explicitly isolated
-deployment network; never expose the plain HTTP origin directly.
+1. Install the extension from the Marketplace (or **Install extension from
+   file** with the release ZIP).
+2. Open the extension page. The **LLM provider** panel asks for:
 
-The reference runtime must be started with `FS_EXTENSION_TOKEN`; configure the
-matching required `runtime_bearer_token` through the same encrypted credentials
-flow. It authenticates host-to-runtime calls only and is never forwarded to
-Ollama. The upstream Ollama `bearer_token` remains optional.
+   | Field | Required | Meaning |
+   | --- | --- | --- |
+   | **Base URL** (`upstream_base_url`) | no | Leave empty for Ollama's hosted API, `https://ollama.com`. For your own server, its public HTTPS address, e.g. `https://ollama.example.com`. |
+   | **API key** (`api_key`) | no | Your key from [ollama.com/settings/keys](https://ollama.com/settings/keys). The hosted API needs one; a self-hosted server usually does not. |
 
-A remote HTTPS LLM provider extension that fronts a **remote** Ollama endpoint
-and exposes its models to the Flow Steward model catalog through the
-`llm_provider` extension contract (schema `llm_provider_extension_v1`).
+   The key is stored encrypted, scoped to your Flow Steward account, and only
+   reaches this extension when it calls Ollama. It is sent as
+   `Authorization: Bearer <key>`.
+3. Click **Discover models** to load the model list.
+4. Tick the models you want. Flow Steward verifies each one (see below) and
+   enables it once it passes.
+5. Choose a verified model on an agent, or set it as a project's default model.
 
-## Contract
+## How models are listed
 
-- **supplier_key / supplier_label**: `ollama_remote` / `Ollama`
-- **runtime_mode**: `remote_https`. Local/private/non-HTTPS Ollama endpoints are
-  out of scope for v1 and are rejected by the platform URL-safety policy
-  (`assert_safe_remote_http_url`) — only public HTTPS runtime base URLs are
-  accepted.
-- **credentials**: account-scoped, via the existing provider-secret flow;
-  `runtime_bearer_token` is required and upstream `bearer_token` is optional.
-- **operations**: `llm.list_models`, `llm.chat`, `llm.chat_structured`.
-- **action idempotency**: chat actions require the host `idempotency_key`. The
-  single-process reference runtime coalesces concurrent calls and retains the
-  completed result or safe error for five minutes in a bounded in-memory cache,
-  preventing a transport retry from duplicating an accepted upstream request
-  while that runtime process remains alive.
-- **model_grouping**: `endpoint` — all models from one connection form a single
-  provider group labelled `"Ollama: <connection display name>"` (the install's
-  display name), composed from descriptor metadata.
+`llm.list_models` reads `GET /api/tags`, then `POST /api/show` for each model on
+the page, to learn its capabilities:
 
-## Naming
+- a model whose `/api/show` lists `tools` is offered with `chat`, `tools` and
+  `structured_output`;
+- a model without `tools` is offered with `chat` only, and Flow Steward will not
+  enable it (it needs all three);
+- a model whose `/api/show` fails is still listed, with no metadata, and
+  verification decides.
 
-`model_id` is preserved exactly as the Ollama endpoint returns it:
+Model ids are kept exactly as Ollama returns them (`gpt-oss:20b`). The `digest`
+is the model's revision: when it changes, Flow Steward marks the model's
+verification stale.
 
-| `model_id` (preserved exactly) | Provider group label             |
-| ------------------------------ | -------------------------------- |
-| `llama3.3:70b`                 | `Ollama: <connection display name>` |
-| `qwen2.5-coder:32b`            | `Ollama: <connection display name>` |
+Pages are at most 25 models, and a whole discovery has a 45-second budget.
+Every page is a separate subprocess, so the cursor holds a fingerprint of the
+tag list plus an offset. If the list changes between pages, discovery fails
+with `invalid_response` and Flow Steward keeps the previous catalog. Run
+**Discover models** again.
 
-## Fixtures
+## How models are verified
 
-`fixtures/` contains canonical `llm.list_models`, `llm.chat`, and
-`llm.chat_structured` responses, exercised by
-`tests/unit/test_llm_provider_extensions.py`.
+Flow Steward, not this extension, verifies a model before it can be enabled. It
+runs a fixed probe: a plain chat, a forced tool call, a tool-result replay, and
+two structured-output answers checked against a JSON Schema with exact
+(`const`) values. A model that fails any step stays disabled and shows the
+reason. A verification lasts 30 days.
+
+## Ollama limits this extension works around
+
+- **The hosted API ignores `format`.** Ollama's docs say:
+  *"Ollama's Cloud currently does not support structured outputs."* So
+  `llm.chat_structured` asks for the answer as **one forced tool call** whose
+  parameters are the requested schema. It also sends `format`, which a local
+  Ollama does enforce, and states the schema in the final instruction, because
+  a model's prompt template can drop schema details. If the model answers in
+  plain JSON content instead of a tool call, that JSON is used.
+- **Some model templates drop `const`.** `const: x` is rewritten as the
+  equivalent `enum: [x]` in tool parameters. A `const` beside an explicit
+  `enum` is left alone so the schema is never loosened. Flow Steward still
+  validates the answer against the original schema.
+- **No `tool_choice` or `parallel_tool_calls`.** `tool_choice: none` withholds
+  the tools. `required` and "one call at a time" are checked on the response:
+  if the model ignores them, the call fails with `capability_mismatch`.
+- **Free-tier refusals.** ollama.com answers `402` for models outside your
+  plan ("not included in your free usage"). They are listed, but verifying or
+  using them fails with `billing_quota_exceeded`. On the free plan,
+  `gpt-oss:20b`, `gpt-oss:120b` and `gemma4:31b` passed verification; others
+  (for example `glm-5.3-flash`, `deepseek-v4.1-flash`) were refused.
+- **`/api/tags` is public on ollama.com.** The model list loads even with a
+  wrong key. A wrong key shows up at verification as `authentication_error`.
+
+## Network safety
+
+The base URL must be public HTTPS. `http://`, `localhost`, `*.local`, URLs with
+credentials, and hosts that resolve to any loopback, private, link-local,
+CGNAT, multicast or reserved address are refused, including when only one of
+several DNS answers is unsafe. Each request is pinned to the address it was
+checked against, and TLS still verifies the hostname. Redirects are never
+followed, so the key cannot be forwarded elsewhere. Upstream bodies are capped
+at 5 MiB.
+
+Because of this, an Ollama on `localhost` or a LAN address cannot be used. Put
+it behind a public HTTPS address if you need it.
+
+## Errors
+
+Every failure leaves the extension as one of these categories, never as
+upstream text: `authentication_error`, `billing_quota_exceeded`,
+`model_unavailable`, `rate_limited`, `timeout`, `capability_mismatch`,
+`invalid_response`, `upstream_error`. Model discovery can be retried safely. A
+failed chat is not retried automatically, because it may already have run
+upstream.
+
+## Files
+
+| File | Purpose |
+| --- | --- |
+| `extension.yaml` | Manifest: subprocess entrypoint and the `llm_provider` contract |
+| `main.py` | Subprocess entrypoint: reads the host request on stdin and dispatches `llm.list_models`, `llm.chat`, `llm.chat_structured` |
+| `runtime.py` | Ollama HTTP client and the three operations |
+| `health.py` | Health command run by the host |
+| `fixtures/` | Canonical results of each operation; the tests compare against them |
+| `ui/` | Extension page shown in Flow Steward |
+
+### Host contract in one paragraph
+
+The host runs `python3 main.py` with one JSON request on stdin.
+`mode` is `query` or `action`, the operation is in `query.query_id` /
+`action.action_id`, and its arguments are in `query.params` / `action.input`. The
+provider settings arrive as runtime resources:
+`runtime_context.resources.connection_config` and
+`runtime_context.resources.provider_secrets`. The extension prints
+`{"ok": true, "result": …}` and exits 0. On failure it prints
+`{"ok": false, "error_code", "error", "errors": [{"code", "message"}]}` and exits
+2, which the host treats as a provider error rather than a crash.
+
+## Development
+
+```bash
+python -m venv .venv && . .venv/bin/activate
+pip install pytest==8.3.5 PyYAML==6.0.3 dev-wheels/flowsteward_extension_sdk-*.whl
+python -m pytest -q                                    # every handler, with mocked HTTP
+python .github/scripts/package_extension.py            # dist/flowsteward.ollama-remote-<version>.zip
+python .github/scripts/catalog_check.py dist/*.zip     # what the catalog would say
+```
+
+These are the same steps CI runs. No test touches the network. Each test
+replaces `runtime._request_json`, or the socket layer for the transport tests.
+To validate the bundle with Flow Steward itself:
+
+```bash
+flow-steward extensions validate flowsteward.ollama-remote --root <directory containing this bundle>
+```
+
+Releases: bump `version` in `extension.yaml`, then push a matching tag
+(`v1.1.0`). The release workflow publishes the archive CI built.

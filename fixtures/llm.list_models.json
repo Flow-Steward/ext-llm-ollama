@@ -3,21 +3,26 @@
   "result": {
     "models": [
       {
-        "model_id": "llama3.3:70b",
-        "label": "llama3.3:70b",
-        "capabilities": ["chat", "structured_output"],
-        "supports_structured_output": true,
-        "metadata": { "parameter_size": "70B", "quantization": "Q4_K_M" }
-      },
-      {
-        "model_id": "qwen2.5-coder:32b",
-        "label": "qwen2.5-coder:32b",
-        "capabilities": ["chat", "structured_output"],
-        "supports_structured_output": true,
-        "metadata": { "parameter_size": "32B" }
+        "model_id": "gpt-oss:20b",
+        "label": "gpt-oss:20b",
+        "capabilities": [
+          "chat",
+          "tools",
+          "structured_output"
+        ],
+        "metadata": {
+          "digest": "sha256:a",
+          "modified_at": "2026-06-12T00:00:00Z",
+          "model_info": {
+            "general.architecture": "gptoss"
+          }
+        },
+        "upstream_revision": "sha256:a",
+        "upstream_digest": "sha256:a"
       }
     ],
     "next_cursor": "",
     "snapshot_complete": true
-  }
+  },
+  "errors": []
 }

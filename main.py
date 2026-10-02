@@ -17,14 +17,17 @@ import sys
 from collections.abc import Callable
 from typing import Any
 
-import runtime
 from flowsteward_extension_sdk import RuntimeResources
 
+import runtime
+
+# Operation ids are the ones the manifest binds in
+# runtime.extension_contract_v2.llm_provider.operations.
 QUERIES: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
-    "llm.list_models": runtime.list_models,
+    "llm.list_models": lambda request: runtime.list_models(request),
 }
 ACTIONS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
-    "llm.chat": runtime.chat,
+    "llm.chat": lambda request: runtime.chat(request),
     "llm.chat_structured": lambda request: runtime.chat(request, structured=True),
 }
 

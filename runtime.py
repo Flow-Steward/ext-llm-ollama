@@ -128,6 +128,9 @@ def _request_json(
         status = int(str(exc)) if str(exc).isdigit() else 0
         category = {
             401: "authentication_error",
+            # ollama.com answers 402 for a model outside the account's plan
+            # ("not included in your free usage").
+            402: "billing_quota_exceeded",
             403: "authentication_error",
             404: "model_unavailable",
             408: "timeout",
@@ -155,6 +158,7 @@ def _failure_response(code: str, *, request_semantics: str) -> dict[str, Any]:
     retryable_code = safe_code in {"rate_limited", "timeout", "upstream_error"}
     definite_refusal = safe_code in {
         "authentication_error",
+        "billing_quota_exceeded",
         "model_unavailable",
         "rate_limited",
     }
@@ -404,6 +408,40 @@ def list_models(request: dict[str, Any]) -> dict[str, Any]:
     return {"models": models, "next_cursor": next_cursor, "snapshot_complete": True}
 
 
+_SCHEMA_NAME_MAPS = frozenset({"properties", "patternProperties", "$defs", "definitions"})
+_SCHEMA_LITERALS = frozenset({"const", "enum", "default", "examples"})
+
+
+def _portable_schema(value: Any) -> Any:
+    """Rewrite ``const: x`` as the equivalent ``enum: [x]``, recursively.
+
+    Ollama renders a tool's parameters into the model's prompt template, and
+    the templates of several models (gpt-oss, gemma) drop ``const``, so the
+    model never sees the constraint. Both keywords mean the same thing in JSON
+    Schema, and the host still validates the answer against the schema it sent.
+    """
+    if isinstance(value, list):
+        return [_portable_schema(item) for item in value]
+    if not isinstance(value, dict):
+        return value
+    # Beside an explicit ``enum``, ``const`` stays: dropping it would loosen
+    # the schema.
+    rewrite_const = "const" in value and "enum" not in value
+    rewritten: dict[str, Any] = {}
+    for key, item in value.items():
+        if key == "const" and rewrite_const:
+            rewritten["enum"] = [item]
+        elif key in _SCHEMA_LITERALS:
+            rewritten[key] = item  # JSON values, not schemas
+        elif key in _SCHEMA_NAME_MAPS and isinstance(item, dict):
+            # Keys here are property/definition names, not keywords: a
+            # property may itself be called "const".
+            rewritten[key] = {name: _portable_schema(sub) for name, sub in item.items()}
+        else:
+            rewritten[key] = _portable_schema(item)
+    return rewritten
+
+
 def _structured_output_tool(payload: dict[str, Any]) -> dict[str, Any]:
     schema = payload.get("schema")
     if not isinstance(schema, dict) or not schema:
@@ -414,7 +452,7 @@ def _structured_output_tool(payload: dict[str, Any]) -> dict[str, Any]:
         "function": {
             "name": STRUCTURED_OUTPUT_TOOL,
             "description": f"Return {name}. Call this exactly once with the complete answer.",
-            "parameters": schema,
+            "parameters": _portable_schema(schema),
         },
     }
 
@@ -441,12 +479,16 @@ def chat(request: dict[str, Any], *, structured: bool = False) -> dict[str, Any]
         "messages": _ollama_messages(payload.get("messages")),
         "stream": False,
     }
+    # Ollama has no tool_choice parameter: "none" withholds the tools and
+    # "required" is enforced on the response.
     tool_choice = str(payload.get("tool_choice") or "auto").strip().lower()
     if tool_choice not in {"auto", "none", "required"}:
         raise RuntimeError("capability_mismatch")
     for key in ("tools", "options"):
         if key in payload:
             body[key] = payload[key]
+    if isinstance(body.get("tools"), list):
+        body["tools"] = _portable_schema(body["tools"])
     if tool_choice == "none" or structured:
         body.pop("tools", None)
     elif tool_choice == "required" and not body.get("tools"):
@@ -461,15 +503,20 @@ def chat(request: dict[str, Any], *, structured: bool = False) -> dict[str, Any]
     if structured:
         # A local Ollama honours ``format``; the hosted API does not, so the
         # schema is also offered as the one tool the model must call.
-        body["format"] = payload.get("schema") or "json"
+        body["format"] = _portable_schema(payload.get("schema")) or "json"
         body["tools"] = [_structured_output_tool(payload)]
         body["messages"] = [
             *body["messages"],
             {
                 "role": "user",
+                # The schema is spelled out in the text as well: the tool
+                # definition alone reaches the model through its prompt
+                # template, which may drop constraints (const, enum, bounds).
                 "content": (
                     f"Respond only by calling the {STRUCTURED_OUTPUT_TOOL} tool once "
-                    "with the complete answer as its arguments."
+                    "with the complete answer as its arguments. The arguments must "
+                    "be valid against this JSON Schema, including every const and "
+                    "enum value: " + json.dumps(payload.get("schema"), separators=(",", ":"))
                 ),
             },
         ]
@@ -485,6 +532,10 @@ def chat(request: dict[str, Any], *, structured: bool = False) -> dict[str, Any]
     elif tool_choice == "required" and not message.get("tool_calls"):
         raise RuntimeError("capability_mismatch")
     elif tool_choice == "none" and message.get("tool_calls"):
+        raise RuntimeError("capability_mismatch")
+    elif payload.get("parallel_tool_calls") is False and len(message.get("tool_calls") or []) > 1:
+        # Ollama has no parallel_tool_calls switch; the host's limit of one
+        # call per turn is enforced on the response.
         raise RuntimeError("capability_mismatch")
     usage = {
         "input_tokens": response.get("prompt_eval_count", 0),
