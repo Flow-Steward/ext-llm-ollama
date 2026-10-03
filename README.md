@@ -12,9 +12,12 @@ default model.
 - Kind: `tool_provider` with the `llm_provider` contract (`llm_provider_extension_v1`)
 - Runs as an ordinary Flow Steward extension subprocess. There is no separate
   service to deploy, no runtime URL and no runtime token.
-- Needs Flow Steward's extension host contract 1.1.0 or newer
-  (`runtime.compatibility.platform_min: 1.1.0`); an older host marks the bundle
-  incompatible.
+- Needs Flow Steward's extension host contract 1.2.0 or newer
+  (`runtime.compatibility.platform_min: 1.2.0`); an older host marks the bundle
+  incompatible. 1.2.0 is the contract that reads `connection_config_defaults`.
+- Declares its default Base URL (`connection_config_defaults.upstream_base_url:
+  https://ollama.com`), so Flow Steward treats an empty Base URL and
+  `https://ollama.com` as the same setting: saving either keeps verified models.
 
 ## Setup
 
@@ -207,5 +210,6 @@ To validate the bundle with Flow Steward itself:
 flow-steward extensions validate flowsteward.ollama-remote --root <directory containing this bundle>
 ```
 
-Releases: bump `version` in `extension.yaml`, then push a matching tag
-(`v1.1.0`). The release workflow publishes the archive CI built.
+Releases: bump `version` in `extension.yaml`, add a line to `CHANGELOG.md`, then
+push a matching tag (`v1.1.1`). The release workflow publishes the archive CI
+built.

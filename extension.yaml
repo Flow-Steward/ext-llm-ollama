@@ -2,7 +2,7 @@ manifest_version: 2
 lifecycle: {data_schema_version: 1, data_migrations: []}
 extension_id: flowsteward.ollama-remote
 kind: tool_provider
-version: 1.1.0
+version: 1.1.1
 release_stage: active
 display_name: Ollama LLM Provider
 description: Use models from Ollama's hosted API, or from your own Ollama server, in Flow Steward agents.
@@ -44,7 +44,7 @@ python_requirements: []
 runtime:
   contract_version: extension_host_v1
   compatibility:
-    platform_min: 1.1.0
+    platform_min: 1.2.0
   extension_contract_v2:
     llm_provider:
       schema_version: llm_provider_extension_v1
@@ -58,6 +58,10 @@ runtime:
       required_connection_config: []
       optional_connection_config:
         - upstream_base_url
+      # What an empty Base URL means. The host compares effective settings, so
+      # clearing the field while it holds this value keeps verified models.
+      connection_config_defaults:
+        upstream_base_url: https://ollama.com
       operations:
         list_models:
           query_id: llm.list_models

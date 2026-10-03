@@ -83,8 +83,24 @@ def test_version_is_semver() -> None:
     assert re.fullmatch(r"\d+\.\d+\.\d+", MANIFEST["version"])
 
 
-def test_it_requires_a_host_that_runs_llm_providers_in_process() -> None:
-    # Extension host contract 1.1.0 is the first that runs an llm_provider as a
-    # subprocess and accepts optional_connection_config; an older host marks the
-    # bundle incompatible ("below required minimum") instead of misreading it.
-    assert MANIFEST["runtime"]["compatibility"]["platform_min"] == "1.1.0"
+def test_it_requires_a_host_that_reads_setting_defaults() -> None:
+    # Extension host contract 1.1.0 runs an llm_provider as a subprocess and
+    # accepts optional_connection_config; 1.2.0 adds connection_config_defaults.
+    # An older host marks the bundle incompatible ("below required minimum")
+    # instead of rejecting a field it does not know.
+    assert MANIFEST["runtime"]["compatibility"]["platform_min"] == "1.2.0"
+
+
+def test_the_declared_default_base_url_is_the_one_the_code_uses(runtime) -> None:
+    # The host treats an empty Base URL as this declared value; it must be the
+    # address the runtime actually falls back to, or "equivalent" would lie.
+    defaults = CONTRACT["connection_config_defaults"]
+
+    assert defaults == {"upstream_base_url": runtime.DEFAULT_BASE_URL}
+    assert set(defaults) <= set(CONTRACT["optional_connection_config"])
+
+
+def test_the_changelog_describes_this_version() -> None:
+    changelog = (ROOT / "CHANGELOG.md").read_text()
+
+    assert f"## {MANIFEST['version']}" in changelog
