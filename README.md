@@ -127,8 +127,13 @@ reason. A verification lasts 30 days.
   using them fails with `billing_quota_exceeded`. On the free plan,
   `gpt-oss:20b`, `gpt-oss:120b` and `gemma4:31b` passed verification; others
   (for example `glm-5.3-flash`, `deepseek-v4.1-flash`) were refused.
-- **`/api/tags` is public on ollama.com.** The model list loads even with a
-  wrong key. A wrong key shows up at verification as `authentication_error`.
+- **`/api/tags` is public on ollama.com,** so the model list alone proves
+  nothing about the key. Since 1.1.2, **Discover models** first calls
+  `POST /api/me` (no model runs) and stops with `authentication_error` when
+  Ollama rejects the key. The usual cause is a partly copied key: a full
+  Ollama key is two parts joined by a dot, and double-clicking selects only
+  one part. Copy the whole key from
+  [ollama.com/settings/keys](https://ollama.com/settings/keys).
 - **Verification can be flaky for some models.** Verification runs a real
   model, so its result can vary. `gpt-oss:120b` passed most runs but about one
   in five failed the tool-result step (`capability_mismatch`), because it

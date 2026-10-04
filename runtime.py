@@ -401,10 +401,42 @@ def _discovered_capabilities(details: dict[str, Any]) -> list[str]:
     return ["chat"]
 
 
+def _check_api_key(
+    base_url: str, headers: dict[str, str], *, allow_private: bool, timeout_seconds: float
+) -> None:
+    """Refuse a key Ollama rejects before listing models.
+
+    ``/api/tags`` and ``/api/show`` are public on ollama.com, so the model list
+    loads with a wrong or missing key and every model then fails verification.
+    ``POST /api/me`` runs no model and answers 401 for a rejected key. A
+    self-hosted Ollama has no such endpoint; anything but 401/403 is no verdict.
+    """
+    try:
+        _request_json(
+            f"{base_url}/api/me",
+            method="POST",
+            headers=headers,
+            body={},
+            timeout_seconds=timeout_seconds,
+            allow_private=allow_private,
+        )
+    except RuntimeError as exc:
+        if str(exc) == "authentication_error":
+            raise
+
+
 def list_models(request: dict[str, Any]) -> dict[str, Any]:
     base_url, headers, allow_private = _connection(request)
     deadline = time.monotonic() + MAX_DISCOVERY_SECONDS
     expected_fingerprint, offset, limit = _pagination(request)
+    if not expected_fingerprint:
+        # Once per discovery: later pages carry the first page's fingerprint.
+        _check_api_key(
+            base_url,
+            headers,
+            allow_private=allow_private,
+            timeout_seconds=min(15, MAX_DISCOVERY_SECONDS),
+        )
     tags = _request_json(
         f"{base_url}/api/tags",
         method="GET",

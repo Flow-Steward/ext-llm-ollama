@@ -33,18 +33,24 @@ def main():
 
 
 class FakeOllama:
-    """Answers ``/api/tags``, ``/api/show`` and ``/api/chat`` from canned data."""
+    """Answers ``/api/me``, ``/api/tags``, ``/api/show`` and ``/api/chat`` from canned data."""
 
     def __init__(self) -> None:
         self.tags: list[dict[str, Any]] = []
         self.show: dict[str, dict[str, Any]] = {}
         self.chat_replies: list[Any] = []
+        # The key check: an accepted key by default; set an exception to refuse it.
+        self.me: Any = {}
         self.calls: list[dict[str, Any]] = []
 
     def __call__(self, url: str, *, method: str, headers: dict, body: Any = None, **kwargs):
         self.calls.append(
             {"url": url, "method": method, "headers": dict(headers), "body": body, **kwargs}
         )
+        if url.endswith("/api/me"):
+            if isinstance(self.me, Exception):
+                raise self.me
+            return self.me
         if url.endswith("/api/tags"):
             return {"models": list(self.tags)}
         if url.endswith("/api/show"):

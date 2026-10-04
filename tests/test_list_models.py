@@ -42,6 +42,7 @@ def test_models_come_from_tags_with_details_from_show(runtime, ollama) -> None:
 
     assert result == json.loads((FIXTURES / "llm.list_models.json").read_text())["result"]
     assert [call["url"] for call in ollama.calls] == [
+        "https://ollama.com/api/me",
         "https://ollama.com/api/tags",
         "https://ollama.com/api/show",
     ]
@@ -53,7 +54,10 @@ def test_a_self_hosted_endpoint_without_a_key_sends_no_authorization(runtime, ol
 
     _list(runtime, base_url="https://llm.example.com")
 
-    assert ollama.calls[0]["url"] == "https://llm.example.com/api/tags"
+    assert [call["url"] for call in ollama.calls[:2]] == [
+        "https://llm.example.com/api/me",
+        "https://llm.example.com/api/tags",
+    ]
     assert all("Authorization" not in call["headers"] for call in ollama.calls)
 
 
@@ -198,3 +202,33 @@ def test_a_path_prefix_that_is_not_an_ollama_api_path_is_kept(runtime, ollama) -
     assert [call["url"] for call in ollama.calls_to("/api/tags")] == [
         "https://gateway.example/ollama/api/tags"
     ]
+
+
+def test_a_key_ollama_rejects_fails_discovery_instead_of_every_model(runtime, ollama) -> None:
+    # /api/tags is public on ollama.com: without this check the list loads and
+    # every model then fails verification with "authentication failed".
+    ollama.tags = _tags(3)
+    ollama.me = RuntimeError("authentication_error")
+    with pytest.raises(RuntimeError, match="^authentication_error$"):
+        _list(runtime, api_key="only-the-part-before-the-dot")
+    assert ollama.calls_to("/api/tags") == []
+
+
+def test_the_key_check_sends_the_key_and_runs_once_per_discovery(runtime, ollama) -> None:
+    ollama.tags = _tags(30)
+    first = _list(runtime, api_key="secret-key", limit=25)
+    _list(runtime, api_key="secret-key", cursor=first["next_cursor"], limit=25)
+    checks = ollama.calls_to("/api/me")
+    assert len(checks) == 1
+    assert checks[0]["method"] == "POST"
+    assert checks[0]["headers"]["Authorization"] == "Bearer secret-key"
+
+
+@pytest.mark.parametrize("no_verdict", ["model_unavailable", "upstream_error", "timeout"])
+def test_a_server_without_the_key_endpoint_still_lists_models(
+    runtime, ollama, no_verdict: str
+) -> None:
+    # A self-hosted Ollama answers 404/405 for /api/me; only 401/403 refuse.
+    ollama.tags = _tags(1)
+    ollama.me = RuntimeError(no_verdict)
+    assert [m["model_id"] for m in _list(runtime)["models"]] == ["model-0"]
