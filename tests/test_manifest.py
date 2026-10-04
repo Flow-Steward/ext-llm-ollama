@@ -83,12 +83,21 @@ def test_version_is_semver() -> None:
     assert re.fullmatch(r"\d+\.\d+\.\d+", MANIFEST["version"])
 
 
-def test_it_requires_a_host_that_reads_setting_defaults() -> None:
+def test_it_requires_a_host_that_reads_setting_help() -> None:
     # Extension host contract 1.1.0 runs an llm_provider as a subprocess and
-    # accepts optional_connection_config; 1.2.0 adds connection_config_defaults.
-    # An older host marks the bundle incompatible ("below required minimum")
-    # instead of rejecting a field it does not know.
-    assert MANIFEST["runtime"]["compatibility"]["platform_min"] == "1.2.0"
+    # accepts optional_connection_config; 1.2.0 adds connection_config_defaults;
+    # 1.3.0 adds connection_config_help and provider_secret_help. An older host
+    # marks the bundle incompatible ("below required minimum").
+    assert MANIFEST["runtime"]["compatibility"]["platform_min"] == "1.3.0"
+
+
+def test_help_text_names_only_declared_settings_and_fits_the_host_limit() -> None:
+    config_help = CONTRACT["connection_config_help"]
+    secret_help = CONTRACT["provider_secret_help"]
+    assert set(config_help) == set(CONTRACT["optional_connection_config"])
+    assert set(secret_help) == set(CONTRACT["optional_provider_secrets"])
+    for text in (*config_help.values(), *secret_help.values()):
+        assert isinstance(text, str) and 0 < len(text) <= 300
 
 
 def test_the_declared_default_base_url_is_the_one_the_code_uses(runtime) -> None:

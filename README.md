@@ -12,9 +12,10 @@ default model.
 - Kind: `tool_provider` with the `llm_provider` contract (`llm_provider_extension_v1`)
 - Runs as an ordinary Flow Steward extension subprocess. There is no separate
   service to deploy, no runtime URL and no runtime token.
-- Needs Flow Steward's extension host contract 1.2.0 or newer
-  (`runtime.compatibility.platform_min: 1.2.0`); an older host marks the bundle
-  incompatible. 1.2.0 is the contract that reads `connection_config_defaults`.
+- Needs Flow Steward's extension host contract 1.3.0 or newer
+  (`runtime.compatibility.platform_min: 1.3.0`); an older host marks the bundle
+  incompatible. 1.2.0 reads `connection_config_defaults`; 1.3.0 shows the help
+  text under each setting (`connection_config_help`, `provider_secret_help`).
 - Declares its default Base URL (`connection_config_defaults.upstream_base_url:
   https://ollama.com`), so Flow Steward treats an empty Base URL and
   `https://ollama.com` as the same setting: saving either keeps verified models.

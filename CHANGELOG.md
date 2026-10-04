@@ -2,6 +2,9 @@
 
 ## 1.1.2
 
+- Explains its settings in Flow Steward: help text under Base URL and API key
+  (`connection_config_help`, `provider_secret_help`). Needs extension host
+  contract 1.3.0 (`platform_min: 1.3.0`).
 - Accepts a Base URL pasted with an Ollama API path (`/api`, `/api/chat`,
   `/api/tags`, `/api/show`, `/api/generate`, `/v1`, `/v1/chat/completions`):
   the path is stripped and the server address is used.
