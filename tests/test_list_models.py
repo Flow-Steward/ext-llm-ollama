@@ -168,3 +168,33 @@ def test_a_tags_answer_without_a_model_list_is_invalid(monkeypatch, runtime, oll
 
     with pytest.raises(RuntimeError, match="invalid_response"):
         _list(runtime)
+
+
+@pytest.mark.parametrize(
+    "pasted",
+    [
+        "https://ollama.example",
+        "https://ollama.example/",
+        "https://ollama.example/api",
+        "https://ollama.example/api/chat",
+        "https://ollama.example/API/TAGS/",
+        "https://ollama.example/v1",
+        "https://ollama.example/v1/chat/completions",
+    ],
+)
+def test_base_url_is_the_server_root_even_when_an_api_path_is_pasted(
+    runtime, ollama, pasted: str
+) -> None:
+    ollama.tags = _tags(1)
+    _list(runtime, base_url=pasted)
+    assert [call["url"] for call in ollama.calls_to("/api/tags")] == [
+        "https://ollama.example/api/tags"
+    ]
+
+
+def test_a_path_prefix_that_is_not_an_ollama_api_path_is_kept(runtime, ollama) -> None:
+    ollama.tags = _tags(1)
+    _list(runtime, base_url="https://gateway.example/ollama")
+    assert [call["url"] for call in ollama.calls_to("/api/tags")] == [
+        "https://gateway.example/ollama/api/tags"
+    ]

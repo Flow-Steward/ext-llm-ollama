@@ -28,6 +28,17 @@ MAX_DISCOVERY_SECONDS = 45
 # Ollama's hosted API (https://docs.ollama.com/cloud). A self-hosted Ollama on a
 # public HTTPS address can be configured instead.
 DEFAULT_BASE_URL = "https://ollama.com"
+# Ollama paths people paste with the server address; this extension appends its
+# own (/api/tags, /api/show, /api/chat), so a Base URL is the server root.
+PASTED_API_SUFFIXES = (
+    "/v1/chat/completions",
+    "/api/generate",
+    "/api/chat",
+    "/api/tags",
+    "/api/show",
+    "/v1",
+    "/api",
+)
 STRUCTURED_OUTPUT_TOOL = "flow_steward_structured_output"
 SAFE_ERROR_CODES = frozenset(
     {
@@ -220,6 +231,16 @@ def _failure_response(code: str, *, request_semantics: str) -> dict[str, Any]:
     }
 
 
+def _server_root(base_url: str) -> str:
+    """Strip one pasted Ollama API path, so ``https://ollama.com/api/chat`` works."""
+    root = base_url.strip().rstrip("/")
+    lowered = root.lower()
+    for suffix in PASTED_API_SUFFIXES:
+        if lowered.endswith(suffix):
+            return root[: -len(suffix)].rstrip("/")
+    return root
+
+
 def _connection(request: dict[str, Any]) -> tuple[str, dict[str, str], bool]:
     """Return the base URL, request headers and whether private hosts are allowed."""
     policy = request.get("network_policy") if isinstance(request, dict) else {}
@@ -227,7 +248,7 @@ def _connection(request: dict[str, Any]) -> tuple[str, dict[str, str], bool]:
     connection = request.get("connection") if isinstance(request, dict) else {}
     config = connection.get("connection_config") if isinstance(connection, dict) else {}
     credentials = connection.get("credentials") if isinstance(connection, dict) else {}
-    base_url = str((config or {}).get("upstream_base_url") or "").strip().rstrip("/")
+    base_url = _server_root(str((config or {}).get("upstream_base_url") or ""))
     base_url = base_url or DEFAULT_BASE_URL
     _upstream_target(base_url, allow_private=allow_private)
     headers = {"Content-Type": "application/json"}

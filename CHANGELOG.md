@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.1.2
+
+- Accepts a Base URL pasted with an Ollama API path (`/api`, `/api/chat`,
+  `/api/tags`, `/api/show`, `/api/generate`, `/v1`, `/v1/chat/completions`):
+  the path is stripped and the server address is used.
+- README: "Which Base URL to enter", with the right value for each setup and
+  the endpoint addresses that are not a Base URL.
+
 ## 1.1.1
 
 - Declares the default Base URL, `https://ollama.com`, as

@@ -33,6 +33,25 @@ default model.
    The key is stored encrypted, scoped to your Flow Steward account, and only
    reaches this extension when it calls Ollama. It is sent as
    `Authorization: Bearer <key>`.
+   ### Which Base URL to enter
+
+   The Base URL is the **address of the Ollama server only**. The extension adds
+   Ollama's paths (`/api/tags`, `/api/show`, `/api/chat`) itself.
+
+   | Where your models run | Base URL | API key |
+   | --- | --- | --- |
+   | Ollama's hosted API (ollama.com) | leave empty, or `https://ollama.com` | required |
+   | Your Ollama on a public address | `https://ollama.example.com` | only if your server checks one |
+   | Ollama on the computer running Flow Steward (Docker) | `http://host.docker.internal:11434` | no; needs private addresses allowed, see [Self-hosted Ollama](#self-hosted-ollama) |
+   | Ollama on another machine in your network | `http://192.168.1.20:11434` | no; needs private addresses allowed |
+
+   Not a Base URL: `https://ollama.com/api/chat`, `https://ollama.com/api`,
+   `https://ollama.com/v1`, `http://localhost:11434/v1/chat/completions`. These are
+   endpoint addresses from Ollama's API docs and OpenAI-style examples. If you
+   paste one, the extension strips `/api…` or `/v1…` and uses the server
+   address, so it still works. `http://localhost:11434` does not reach your
+   computer: inside Docker, `localhost` is the Flow Steward container.
+
 3. Click **Discover models** to load the model list.
 4. Tick the models you want. Flow Steward verifies each one (see below) and
    enables it once it passes.
