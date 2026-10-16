@@ -29,6 +29,8 @@ contract, a missing scope key, or both a Group and a For each as its owner is
 refused (`invalid_host_envelope`) before Ollama is called. Install it on a Flow
 Steward Core that speaks this contract; an older Core does not run it.
 
+Logo: `icon.png` (the Flow Steward wave mark).
+
 ## Setup
 
 1. Install the extension from the Marketplace (or **Install extension from

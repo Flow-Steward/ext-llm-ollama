@@ -7,6 +7,7 @@ promises something the code does not do (or the other way round).
 from __future__ import annotations
 
 import re
+import struct
 from pathlib import Path
 
 import pytest
@@ -113,3 +114,14 @@ def test_the_changelog_describes_this_version() -> None:
     changelog = (ROOT / "CHANGELOG.md").read_text()
 
     assert f"## {MANIFEST['version']}" in changelog
+
+
+def test_logo_is_a_square_png_within_the_host_limits() -> None:
+    # Core requires icon.png at the bundle root: PNG, square, 32-512 px, <= 100 KB.
+    data = (ROOT / "icon.png").read_bytes()
+    assert data[:8] == b"\x89PNG\r\n\x1a\n"
+    assert data[12:16] == b"IHDR"
+    width, height = struct.unpack(">II", data[16:24])
+    assert width == height
+    assert 32 <= width <= 512
+    assert len(data) <= 100 * 1024

@@ -2,6 +2,7 @@
 
 ## 1.2.0
 
+- Logo: `icon.png`, the Flow Steward wave mark.
 - Speaks the final extension host contract `extension_host_v2`
   (`runtime.contract_version`) and is built on `flowsteward-extension-sdk` 0.4.0.
   A request of another contract, with a missing execution-scope key
