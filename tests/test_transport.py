@@ -265,7 +265,7 @@ def test_an_oversized_body_is_refused_before_parsing(monkeypatch, runtime, publi
 
 
 def test_no_base_url_means_ollamas_hosted_api(monkeypatch, runtime) -> None:
-    checked: list[str] = []
+    checked: list[tuple[str, dict]] = []
     monkeypatch.setattr(
         runtime, "_upstream_target", lambda url, **kwargs: checked.append((url, kwargs))
     )

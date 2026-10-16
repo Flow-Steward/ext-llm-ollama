@@ -17,7 +17,7 @@ import sys
 from collections.abc import Callable
 from typing import Any
 
-from flowsteward_extension_sdk import RuntimeResources
+from flowsteward_extension_sdk import RuntimeResources, runtime_context_from_payload
 
 import runtime
 
@@ -36,8 +36,24 @@ def _object(value: Any) -> dict[str, Any]:
     return dict(value) if isinstance(value, dict) else {}
 
 
+def _invalid_host_envelope(reason: str) -> dict[str, Any]:
+    """The structured error for an envelope this extension does not speak."""
+    response = runtime._failure_response("invalid_host_envelope", request_semantics="safe_read")
+    message = f"Invalid host envelope: {reason}"
+    response["error"] = message
+    response["errors"] = [{"code": response["error_code"], "message": message}]
+    response["definitely_no_external_effect"] = True
+    return response
+
+
 def handle(payload: dict[str, Any]) -> tuple[dict[str, Any], int]:
     """Dispatch one host request to the matching provider operation."""
+    # The host envelope is checked before anything is read or sent: another
+    # contract, a missing execution-scope key or two owners is refused here.
+    try:
+        runtime_context_from_payload(payload)
+    except ValueError as exc:
+        return _invalid_host_envelope(str(exc)), 2
     resources = RuntimeResources.from_context(_object(payload.get("runtime_context")))
     connection = {
         "connection_config": resources.object("connection_config"),

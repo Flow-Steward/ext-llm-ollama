@@ -20,6 +20,15 @@ default model.
   https://ollama.com`), so Flow Steward treats an empty Base URL and
   `https://ollama.com` as the same setting: saving either keeps verified models.
 
+## Requirements
+
+This release speaks the host contract `extension_host_v2` with its final
+execution scope (`group_id`, `for_each_id`, `step_id`, `step_execution_id`)
+and is built on `flowsteward-extension-sdk` 0.4.0. A request with another
+contract, a missing scope key, or both a Group and a For each as its owner is
+refused (`invalid_host_envelope`) before Ollama is called. Install it on a Flow
+Steward Core that speaks this contract; an older Core does not run it.
+
 ## Setup
 
 1. Install the extension from the Marketplace (or **Install extension from
@@ -207,7 +216,9 @@ upstream.
 
 ### Host contract in one paragraph
 
-The host runs `python3 main.py` with one JSON request on stdin.
+The host runs `python3 main.py` with one JSON request on stdin. Its root
+`contract_version` is `extension_host_v2` and `runtime_context` carries the
+four execution-scope keys; anything else is refused before any work.
 `mode` is `query` or `action`, the operation is in `query.query_id` /
 `action.action_id`, and its arguments are in `query.params` / `action.input`. The
 provider settings arrive as runtime resources:
