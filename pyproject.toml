@@ -1,6 +1,6 @@
 [project]
 name = "flowsteward-ollama-llm-provider"
-version = "1.2.0"
+version = "1.2.1"
 requires-python = ">=3.11"
 
 [tool.pytest.ini_options]

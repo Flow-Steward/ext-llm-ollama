@@ -2,7 +2,7 @@ manifest_version: 2
 lifecycle: {data_schema_version: 1, data_migrations: []}
 extension_id: flowsteward.ollama-remote
 kind: tool_provider
-version: 1.2.0
+version: 1.2.1
 release_stage: active
 display_name: Ollama LLM Provider
 description: Use models from Ollama's hosted API, or from your own Ollama server, in Flow Steward agents.
