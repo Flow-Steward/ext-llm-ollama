@@ -1,0 +1,9 @@
+{
+  "brand": "Ollama",
+  "source_page": "https://github.com/ollama/ollama",
+  "source_url": "https://avatars.githubusercontent.com/u/151674099?s=400&v=4",
+  "retrieved_at": "2026-11-03",
+  "source_sha256": "c12ad62f97755d66132b760981c6932c0d9a5ec744f80c9f35205f23d71a4d8b",
+  "icon_sha256": "d01de2189d517e07d51096393bb9e8499e6324ef57409b8e269cf333b141785f",
+  "transformation": "Official Ollama organization avatar linked by official repository; uniformly resized 400x400 to 256x256. Website navigation PNG also retained; linked 512px site icon returned 404."
+}
