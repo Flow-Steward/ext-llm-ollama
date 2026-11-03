@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.2
+
+- Use the original official provider artwork in the catalog and extension icon. Runtime behavior is unchanged.
+
 ## 1.2.1
 
 - The logo (`icon.png`) now has a transparent background; in 1.2.0 the Flow Steward wave sat on a black box on dark themes.
