@@ -1,12 +1,10 @@
 # Ollama LLM Provider for Flow Steward
 
-Use Ollama models in Flow Steward agents. The extension connects either to
-**Ollama's hosted API** (`https://ollama.com`, needs an API key) or to **your own
-Ollama server**: on a public HTTPS address, or on your machine or local network
-once an administrator allows private addresses (see
-[Self-hosted Ollama](#self-hosted-ollama)). Models you add appear in Flow
-Steward's model catalog: you can pick them for an agent or make one a project's
-default model.
+Run Flow Steward agents with models from Ollama's hosted API or an Ollama server you operate using Ollama LLM Provider. Discover the server's models, select the ones you need and add those that pass Flow Steward's capability verification to the model catalog. You can then choose a model for an agent or use it as a project's default.
+
+The provider uses Ollama's model-list, model-information and chat APIs. It supports conversations, tool calls with result replay, and schema-guided structured responses. Structured responses use a forced-tool approach, with the local Ollama format option supplied as well. Returned messages, tool calls and usage information are passed back to Flow Steward.
+
+Use it when you want agents backed by Ollama cloud models or by models running on your own infrastructure. The extension does not install Ollama or download model weights. Models must meet Flow Steward's chat, tool-use and structured-output requirements; appearing in discovery does not guarantee enablement. Hosted access depends on your API key, plan and quota. A private server must be reachable from Flow Steward's runtime and permitted by the host's network policy.
 
 - Extension id: `flowsteward.ollama-remote`
 - Kind: `tool_provider` with the `llm_provider` contract (`llm_provider_extension_v1`)

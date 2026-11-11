@@ -2,10 +2,15 @@ manifest_version: 2
 lifecycle: {data_schema_version: 1, data_migrations: []}
 extension_id: flowsteward.ollama-remote
 kind: tool_provider
-version: 1.2.2
+version: 1.2.3
 release_stage: active
 display_name: Ollama LLM Provider
-description: Use models from Ollama's hosted API, or from your own Ollama server, in Flow Steward agents.
+description: |-
+  Run Flow Steward agents with models from Ollama's hosted API or an Ollama server you operate using Ollama LLM Provider. Discover the server's models, select the ones you need and add those that pass Flow Steward's capability verification to the model catalog. You can then choose a model for an agent or use it as a project's default.
+
+  The provider uses Ollama's model-list, model-information and chat APIs. It supports conversations, tool calls with result replay, and schema-guided structured responses. Structured responses use a forced-tool approach, with the local Ollama format option supplied as well. Returned messages, tool calls and usage information are passed back to Flow Steward.
+
+  Use it when you want agents backed by Ollama cloud models or by models running on your own infrastructure. The extension does not install Ollama or download model weights. Models must meet Flow Steward's chat, tool-use and structured-output requirements; appearing in discovery does not guarantee enablement. Hosted access depends on your API key, plan and quota. A private server must be reachable from Flow Steward's runtime and permitted by the host's network policy.
 vendor:
   name: Flow Steward
   support_url: https://github.com/Flow-Steward/ext-llm-ollama/issues
@@ -13,9 +18,13 @@ vendor:
 listing:
   category: ai
   tags:
-    - llm
-    - ollama
-  summary: Connect Ollama with an API key, load its model list, and add models to the Flow Steward model catalog.
+  - llm
+  - ollama
+  summary: Add hosted or self-hosted Ollama models to Flow Steward agents with model discovery, tool calling and
+    structured responses.
+  setup_summary: For hosted Ollama, enter the complete API key in the account-scoped LLM provider panel and leave
+    the Base URL empty. For your own server, enter its reachable base URL, supply a key if it requires one, and
+    enable the host's private-address policy when needed; then discover and verify models.
 features:
   - tool
   - llm_provider
