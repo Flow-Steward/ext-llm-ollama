@@ -1,3 +1,4 @@
 version: "1"
 pages:
   - ref: pages/provider.yaml
+  - ref: pages/support.yaml

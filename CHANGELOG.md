@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.4
+
+### Added
+
+- Added a Support tab with links for reporting a problem, asking a question or requesting a feature in this extension's GitHub repository, and what to include in a report.
+
 ## 1.2.3
 
 - Expand catalog and platform descriptions with capabilities and setup guidance.

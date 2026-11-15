@@ -2,7 +2,7 @@ manifest_version: 2
 lifecycle: {data_schema_version: 1, data_migrations: []}
 extension_id: flowsteward.ollama-remote
 kind: tool_provider
-version: 1.2.3
+version: 1.2.4
 release_stage: active
 display_name: Ollama LLM Provider
 description: |-
