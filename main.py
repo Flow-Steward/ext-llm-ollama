@@ -59,8 +59,8 @@ def handle(payload: dict[str, Any]) -> tuple[dict[str, Any], int]:
         "connection_config": resources.object("connection_config"),
         "credentials": resources.object("provider_secrets"),
     }
-    # The host's network decision (FS_ALLOW_PRIVATE_REMOTE_URLS); this
-    # subprocess never reads host environment for it.
+    # The host's network decision (FS_ALLOW_PRIVATE_REMOTE_URLS and
+    # FS_ALLOWED_PRIVATE_ORIGINS); this subprocess never reads host environment for it.
     runtime_context = _object(payload.get("runtime_context"))
     network_policy = _object(runtime_context.get("network_policy"))
     mode = str(payload.get("mode") or "").strip()

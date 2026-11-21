@@ -211,9 +211,47 @@ def test_http_status_maps_to_one_safe_category(
     )
 
     with pytest.raises(RuntimeError) as caught:
-        runtime._request_json("https://ollama.example", method="GET", headers={})
+        runtime._request_json(
+            "https://ollama.example", method="GET", headers={"Authorization": "Bearer key"}
+        )
 
     assert str(caught.value) == category
+
+
+@pytest.mark.parametrize("status", [401, 403])
+def test_a_refusal_without_a_key_is_not_called_a_rejected_key(
+    monkeypatch, runtime, public_target, status
+) -> None:
+    # A local Ollama answers 401 for endpoints that need an ollama.com sign-in.
+    # No key was entered, so "the provider rejected the API key" would be false (#29).
+    monkeypatch.setattr(
+        runtime.http.client, "HTTPSConnection", _connection_class(response=_Response(status))
+    )
+
+    with pytest.raises(RuntimeError) as caught:
+        runtime._request_json("https://ollama.example", method="GET", headers={})
+
+    assert str(caught.value) == "upstream_error"
+
+
+@pytest.mark.parametrize("status", [401, 403])
+def test_ollama_com_refusing_a_missing_key_is_an_authentication_error(
+    monkeypatch, runtime, status
+) -> None:
+    # The hosted API needs a key: there a refusal is about the key even when none was sent.
+    monkeypatch.setattr(
+        runtime,
+        "_upstream_target",
+        lambda _url, **_kwargs: ("https", "ollama.com", "203.0.113.9", 443, "/api/me"),
+    )
+    monkeypatch.setattr(
+        runtime.http.client, "HTTPSConnection", _connection_class(response=_Response(status))
+    )
+
+    with pytest.raises(RuntimeError) as caught:
+        runtime._request_json("https://ollama.com/api/me", method="POST", headers={}, body={})
+
+    assert str(caught.value) == "authentication_error"
 
 
 @pytest.mark.parametrize(
@@ -444,3 +482,118 @@ def test_anything_but_an_explicit_true_keeps_private_hosts_refused(runtime, poli
                 },
             }
         )
+
+
+# --------------------------------------------------------------------------- #
+# One private origin the administrator listed (FS_ALLOWED_PRIVATE_ORIGINS)     #
+# --------------------------------------------------------------------------- #
+
+_LOCAL = "http://host.docker.internal:11434"
+
+
+def _connect(runtime, base_url: str, policy) -> bool:
+    return runtime._connection(
+        {
+            "network_policy": policy,
+            "connection": {"connection_config": {"upstream_base_url": base_url}},
+        }
+    )[2]
+
+
+@pytest.mark.parametrize(
+    "base_url",
+    [
+        _LOCAL,
+        f"{_LOCAL}/",
+        f"{_LOCAL}/v1",  # a pasted OpenAI-style path is stripped to the server address
+        "HTTP://Host.Docker.Internal:11434",
+    ],
+)
+def test_a_listed_origin_reaches_its_private_server(monkeypatch, runtime, base_url) -> None:
+    _resolve_to(monkeypatch, runtime, "192.168.65.254")
+
+    assert _connect(runtime, base_url, {"allowed_private_origins": [_LOCAL]}) is True
+
+
+@pytest.mark.parametrize(
+    ("base_url", "address"),
+    [
+        ("http://host.docker.internal:11435", "192.168.65.254"),  # another port
+        ("http://host.docker.internal", "192.168.65.254"),  # port 80 is another port
+        ("https://host.docker.internal:11434", "192.168.65.254"),  # another scheme
+        ("http://192.168.65.254:11434", "192.168.65.254"),  # same address, other name
+        ("http://ollama.lan:11434", "10.0.0.7"),  # another private host
+        ("http://localhost:11434", "127.0.0.1"),
+    ],
+)
+def test_anything_but_the_listed_origin_stays_refused(
+    monkeypatch, runtime, base_url, address
+) -> None:
+    _resolve_to(monkeypatch, runtime, address)
+
+    with pytest.raises(RuntimeError, match="model_unavailable"):
+        _connect(runtime, base_url, {"allowed_private_origins": [_LOCAL]})
+
+
+@pytest.mark.parametrize(
+    "addresses",
+    [
+        ("169.254.169.254",),  # the listed name now points at the metadata service
+        ("192.168.65.254", "169.254.169.254"),  # one bad answer among good ones
+        ("8.8.8.8",),  # a public answer never gets plain http
+    ],
+)
+def test_a_listed_origin_keeps_the_address_rules(monkeypatch, runtime, addresses) -> None:
+    _resolve_to(monkeypatch, runtime, *addresses)
+
+    with pytest.raises(RuntimeError, match="model_unavailable"):
+        _connect(runtime, _LOCAL, {"allowed_private_origins": [_LOCAL]})
+
+
+@pytest.mark.parametrize(
+    "listed",
+    [None, "http://host.docker.internal:11434", [None, 11434], ["host.docker.internal:11434"]],
+)
+def test_a_malformed_list_allows_nothing(monkeypatch, runtime, listed) -> None:
+    _resolve_to(monkeypatch, runtime, "192.168.65.254")
+
+    with pytest.raises(RuntimeError, match="model_unavailable"):
+        _connect(runtime, _LOCAL, {"allowed_private_origins": listed})
+
+
+def test_a_listed_origin_is_dialled_at_the_checked_address_without_redirects(
+    monkeypatch, runtime
+) -> None:
+    dialed: list = []
+    _resolve_to(monkeypatch, runtime, "192.168.65.254")
+
+    class _Redirecting:
+        def __init__(self, host, port, **kwargs):
+            self._create_connection = None
+
+        def request(self, method, path, **kwargs):
+            self._create_connection(("ignored", 0), 5)
+
+        def getresponse(self):
+            # A redirect elsewhere is not followed: it fails as a plain upstream error.
+            return _Response(302, b'{"location": "http://10.0.0.9:11434/api/tags"}')
+
+        def close(self):
+            return None
+
+    monkeypatch.setattr(runtime.http.client, "HTTPConnection", _Redirecting)
+    monkeypatch.setattr(
+        runtime.socket, "create_connection", lambda address, *_a, **_k: dialed.append(address)
+    )
+    base_url, headers, allow_private = runtime._connection(
+        {
+            "network_policy": {"allowed_private_origins": [_LOCAL]},
+            "connection": {"connection_config": {"upstream_base_url": _LOCAL}},
+        }
+    )
+
+    with pytest.raises(RuntimeError, match="^upstream_error$"):
+        runtime._request_json(
+            f"{base_url}/api/tags", method="GET", headers=headers, allow_private=allow_private
+        )
+    assert dialed == [("192.168.65.254", 11434)]

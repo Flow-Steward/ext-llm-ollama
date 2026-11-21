@@ -107,6 +107,21 @@ def test_a_query_gets_its_params_and_the_provider_settings(main, recorded) -> No
     }
 
 
+def test_the_hosts_allowed_private_origins_reach_the_handler(main, recorded) -> None:
+    payload = _query("llm.list_models")
+    payload["runtime_context"]["network_policy"] = {
+        "allow_private_addresses": False,
+        "allowed_private_origins": ["http://host.docker.internal:11434"],
+    }
+
+    main.handle(payload)
+
+    assert recorded[0][1]["network_policy"] == {
+        "allow_private_addresses": False,
+        "allowed_private_origins": ["http://host.docker.internal:11434"],
+    }
+
+
 @pytest.mark.parametrize(
     ("action_id", "structured"),
     [("llm.chat", False), ("llm.chat_structured", True)],

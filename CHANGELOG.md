@@ -1,5 +1,29 @@
 # Changelog
 
+## 1.2.5
+
+### Fixed
+
+- A self-hosted Ollama is no longer asked for an ollama.com account. **Save connection**
+  and **Discover models** called `POST /api/me` for every Base URL; a local Ollama that
+  is not signed in to ollama.com answers 401 there, and the check failed with "the
+  provider rejected the API key" although no key was entered. The key check now runs
+  only for ollama.com; a self-hosted server passes when its model list (`GET /api/tags`)
+  answers.
+- A 401/403 is reported as a rejected key only when a key was sent or the server is
+  ollama.com. Without a key, a self-hosted server's refusal (for example a cloud model on
+  a local Ollama that is not signed in) is reported as a failed request.
+
+### Added
+
+- Works with Flow Steward's `FS_ALLOWED_PRIVATE_ORIGINS` (0.9.23): an administrator can
+  allow just one local server, for example `http://host.docker.internal:11434`, instead
+  of every private address with `FS_ALLOW_PRIVATE_REMOTE_URLS=1`. The extension accepts
+  a private Base URL only when its exact origin (scheme, host, port) is in the host's
+  `network_policy.allowed_private_origins`; link-local and metadata addresses stay
+  refused, redirects are still not followed, and the connection stays pinned to the
+  checked address.
+
 ## 1.2.4
 
 ### Added

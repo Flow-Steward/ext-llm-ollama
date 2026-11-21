@@ -53,8 +53,8 @@ for its source and attribution.
    | --- | --- | --- |
    | Ollama's hosted API (ollama.com) | leave empty, or `https://ollama.com` | required |
    | Your Ollama on a public address | `https://ollama.example.com` | only if your server checks one |
-   | Ollama on the computer running Flow Steward (Docker) | `http://host.docker.internal:11434` | no; needs private addresses allowed, see [Self-hosted Ollama](#self-hosted-ollama) |
-   | Ollama on another machine in your network | `http://192.168.1.20:11434` | no; needs private addresses allowed |
+   | Ollama on the computer running Flow Steward (Docker) | `http://host.docker.internal:11434` | no; an administrator allows this address, see [Self-hosted Ollama](#self-hosted-ollama) |
+   | Ollama on another machine in your network | `http://192.168.1.20:11434` | no; an administrator allows this address |
 
    Not a Base URL: `https://ollama.com/api/chat`, `https://ollama.com/api`,
    `https://ollama.com/v1`, `http://localhost:11434/v1/chat/completions`. These are
@@ -139,12 +139,25 @@ reason. A verification lasts 30 days.
   `gpt-oss:20b`, `gpt-oss:120b` and `gemma4:31b` passed verification; others
   (for example `glm-5.3-flash`, `deepseek-v4.1-flash`) were refused.
 - **`/api/tags` is public on ollama.com,** so the model list alone proves
-  nothing about the key. Since 1.1.2, **Discover models** first calls
+  nothing about the key. For ollama.com, **Discover models** first calls
   `POST /api/me` (no model runs) and stops with `authentication_error` when
   Ollama rejects the key. The usual cause is a partly copied key: a full
   Ollama key is two parts joined by a dot, and double-clicking selects only
   one part. Copy the whole key from
   [ollama.com/settings/keys](https://ollama.com/settings/keys).
+- **A self-hosted Ollama is checked by its model list.** Since 1.2.5 a Base URL
+  other than ollama.com is never sent to `POST /api/me`: a local Ollama answers
+  401 there unless it is signed in to an ollama.com account, which it does not
+  need to serve its own models. **Discover models** (and **Save connection**)
+  pass when `GET /api/tags` answers. A 401/403 counts as a rejected key only
+  when you entered a key or the server is ollama.com; otherwise it is reported
+  as a failed request (`upstream_error`), for example a cloud model (`…-cloud`)
+  on a local Ollama that is not signed in.
+- **A model that is not loaded yet can miss the first verification.** A local
+  Ollama loads a model on first use, which can take longer than Flow Steward's
+  verification allows (`timeout`). Load it once (for example
+  `ollama run <model> hi`, or keep it loaded with `OLLAMA_KEEP_ALIVE`) and
+  **Try again**.
 - **Verification can be flaky for some models.** Verification runs a real
   model, so its result can vary. `gpt-oss:120b` passed most runs but about one
   in five failed the tool-result step (`capability_mismatch`), because it
@@ -158,20 +171,43 @@ An Ollama on a public HTTPS address works with no extra setup: put its URL in
 
 An Ollama on your own machine or local network (`localhost`, `127.0.0.1`,
 `192.168.x.x`, `10.x.x.x`, `172.16–31.x.x`, `fc00::/7`) is refused by default.
-A Flow Steward administrator can allow it with the server setting
-`FS_ALLOW_PRIVATE_REMOTE_URLS=1` (in the installation's `.env`, then restart
-Flow Steward). Until then, saving such a URL is rejected with a message that
-names this setting. With the setting on:
+Saving such a URL is rejected with a message that gives the exact command for
+your installation. A Flow Steward administrator allows it in one of two ways.
+
+**Just this server (recommended, Flow Steward 0.9.23 or newer).** List the
+server's exact origin, `scheme://host:port`, in the host setting
+`FS_ALLOWED_PRIVATE_ORIGINS`:
+
+```bash
+flow-steward config set FS_ALLOWED_PRIVATE_ORIGINS=http://host.docker.internal:11434
+flow-steward config apply
+```
+
+(On Compact, run `./flow-steward config set …` and `./flow-steward config apply`
+from the installation folder.) Separate several servers with commas. The Base
+URL must match the entry exactly: same scheme, same host name, same port. So
+`http://host.docker.internal:11434` does not admit port 11435, `https://` on
+the same port, or the same address written as an IP. Every other private
+address stays refused, and so do MCP connectors and other outbound requests to
+private hosts.
+
+**Every private address.** `FS_ALLOW_PRIVATE_REMOTE_URLS=1` allows any private
+or loopback address, for this extension and for other outbound connections of
+the installation. Prefer the setting above.
+
+Either way:
 
 - private and loopback addresses may use `http://` or `https://`;
 - public addresses still need `https://`;
 - link-local addresses, including the cloud metadata service `169.254.169.254`
   and `fe80::/10`, are refused anyway, as are CGNAT, multicast, reserved and
-  unspecified addresses.
+  unspecified addresses, even when an allowed host name resolves to one.
 
-The setting is the host's decision. Flow Steward passes it to the extension as
-`runtime_context.network_policy.allow_private_addresses`, and the extension never
-reads host environment for it.
+The settings are the host's decision. Flow Steward passes them to the extension
+as `runtime_context.network_policy.allow_private_addresses` and
+`runtime_context.network_policy.allowed_private_origins`, and the extension never
+reads host environment for them. An older Flow Steward does not send
+`allowed_private_origins`; there only `FS_ALLOW_PRIVATE_REMOTE_URLS=1` works.
 
 **`localhost` is the Flow Steward container, not your computer.** Flow Steward
 (the Compact install in particular) runs in Docker, so `http://localhost:11434`
@@ -189,7 +225,8 @@ By default the base URL must be public HTTPS. `http://`, `localhost`,
 `*.local`, URLs with credentials, and hosts that resolve to any loopback,
 private, link-local, CGNAT, multicast or reserved address are refused,
 including when only one of several DNS answers is unsafe. With private
-addresses allowed, the rules above apply instead. Every name is resolved once
+addresses allowed, or for a base URL whose exact origin the administrator
+listed, the rules above apply instead. Every name is resolved once
 and each request is pinned to the address that was checked, so DNS cannot
 rebind it elsewhere, and TLS still verifies the hostname. Redirects are never
 followed, so the key cannot be forwarded elsewhere. Upstream bodies are capped

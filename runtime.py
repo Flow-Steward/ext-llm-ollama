@@ -3,7 +3,8 @@
 The extension runs as an ordinary Flow Steward extension subprocess (see
 ``main.py``). Each operation receives the provider's own settings — an optional
 base URL (default: Ollama's hosted API) and an optional API key — and talks to
-that Ollama endpoint over public HTTPS only.
+that Ollama endpoint over public HTTPS, or over a private network when the host's
+network policy allows it.
 """
 
 from __future__ import annotations
@@ -39,6 +40,8 @@ PASTED_API_SUFFIXES = (
     "/v1",
     "/api",
 )
+# Ollama's hosted service: the only place a missing key is refused as a key.
+CLOUD_HOSTS = ("ollama.com",)
 STRUCTURED_OUTPUT_TOOL = "flow_steward_structured_output"
 SAFE_ERROR_CODES = frozenset(
     {
@@ -63,7 +66,8 @@ def _read_bounded(stream: Any) -> bytes:
 
 
 # Private ranges a self-hosted Ollama may live in when the administrator allows
-# private addresses (FS_ALLOW_PRIVATE_REMOTE_URLS on the Flow Steward host).
+# private addresses (FS_ALLOW_PRIVATE_REMOTE_URLS on the Flow Steward host) or
+# lists the base URL's exact origin (FS_ALLOWED_PRIVATE_ORIGINS).
 # Loopback is accepted separately. Link-local (169.254.0.0/16 with the cloud
 # metadata service, fe80::/10), CGNAT, multicast, reserved and unspecified
 # addresses are never accepted.
@@ -179,12 +183,21 @@ def _request_json(
         value = json.loads(raw.decode())
     except http.client.HTTPException as exc:
         status = int(str(exc)) if str(exc).isdigit() else 0
+        # 401/403 is a rejected key only when a key was sent or the target is
+        # Ollama's hosted API, which needs one. A local Ollama answers 401 for
+        # endpoints that need an ollama.com sign-in (``/api/me``, cloud models);
+        # with no key entered, "the provider rejected the API key" would be false.
+        refused = (
+            "authentication_error"
+            if headers.get("Authorization") or _is_cloud_host(hostname)
+            else "upstream_error"
+        )
         category = {
-            401: "authentication_error",
+            401: refused,
             # ollama.com answers 402 for a model outside the account's plan
             # ("not included in your free usage").
             402: "billing_quota_exceeded",
-            403: "authentication_error",
+            403: refused,
             404: "model_unavailable",
             408: "timeout",
             429: "rate_limited",
@@ -201,6 +214,31 @@ def _request_json(
     if not isinstance(value, dict):
         raise RuntimeError("invalid_response")
     return value
+
+
+def _is_cloud_host(hostname: str) -> bool:
+    host = str(hostname or "").rstrip(".").lower()
+    return any(host == cloud or host.endswith(f".{cloud}") for cloud in CLOUD_HOSTS)
+
+
+def _origin(url: str) -> str | None:
+    """``scheme://host:port`` of an http(s) URL, the scheme's port filled in."""
+    try:
+        parsed = urlsplit(str(url or "").strip())
+        port = parsed.port
+    except ValueError:
+        return None
+    scheme = parsed.scheme.lower()
+    host = (parsed.hostname or "").rstrip(".").lower()
+    if scheme not in {"http", "https"} or not host or "@" in parsed.netloc:
+        return None
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        address = None
+    if address is not None:
+        host = f"[{address.compressed}]" if address.version == 6 else address.compressed
+    return f"{scheme}://{host}:{port or (443 if scheme == 'https' else 80)}"
 
 
 def _failure_response(code: str, *, request_semantics: str) -> dict[str, Any]:
@@ -240,15 +278,35 @@ def _server_root(base_url: str) -> str:
     return root
 
 
+def _private_allowed(policy: Any, base_url: str) -> bool:
+    """Whether the host lets this base URL reach a private address.
+
+    Either the host allows private addresses outright
+    (``allow_private_addresses: true``, FS_ALLOW_PRIVATE_REMOTE_URLS), or the
+    base URL's exact origin is one the administrator listed in
+    ``allowed_private_origins`` (FS_ALLOWED_PRIVATE_ORIGINS).
+    """
+    if not isinstance(policy, dict):
+        return False
+    if policy.get("allow_private_addresses") is True:
+        return True
+    listed = policy.get("allowed_private_origins")
+    if not isinstance(listed, list):
+        return False
+    origin = _origin(base_url)
+    allowed = {_origin(item) for item in listed if isinstance(item, str)}
+    return origin is not None and origin in allowed
+
+
 def _connection(request: dict[str, Any]) -> tuple[str, dict[str, str], bool]:
     """Return the base URL, request headers and whether private hosts are allowed."""
     policy = request.get("network_policy") if isinstance(request, dict) else {}
-    allow_private = isinstance(policy, dict) and policy.get("allow_private_addresses") is True
     connection = request.get("connection") if isinstance(request, dict) else {}
     config = connection.get("connection_config") if isinstance(connection, dict) else {}
     credentials = connection.get("credentials") if isinstance(connection, dict) else {}
     base_url = _server_root(str((config or {}).get("upstream_base_url") or ""))
     base_url = base_url or DEFAULT_BASE_URL
+    allow_private = _private_allowed(policy, base_url)
     _upstream_target(base_url, allow_private=allow_private)
     headers = {"Content-Type": "application/json"}
     # Ollama's hosted API needs a key; a self-hosted endpoint may not.
@@ -404,12 +462,14 @@ def _discovered_capabilities(details: dict[str, Any]) -> list[str]:
 def _check_api_key(
     base_url: str, headers: dict[str, str], *, allow_private: bool, timeout_seconds: float
 ) -> None:
-    """Refuse a key Ollama rejects before listing models.
+    """Refuse a key ollama.com rejects before listing models.
 
     ``/api/tags`` and ``/api/show`` are public on ollama.com, so the model list
     loads with a wrong or missing key and every model then fails verification.
-    ``POST /api/me`` runs no model and answers 401 for a rejected key. A
-    self-hosted Ollama has no such endpoint; anything but 401/403 is no verdict.
+    ``POST /api/me`` runs no model and answers 401 for a rejected key; anything
+    but 401/403 is no verdict. Only called for ollama.com: a local Ollama answers
+    401 there unless it is signed in to an ollama.com account, which it does not
+    need to serve its own models.
     """
     try:
         _request_json(
@@ -429,8 +489,10 @@ def list_models(request: dict[str, Any]) -> dict[str, Any]:
     base_url, headers, allow_private = _connection(request)
     deadline = time.monotonic() + MAX_DISCOVERY_SECONDS
     expected_fingerprint, offset, limit = _pagination(request)
-    if not expected_fingerprint:
+    if not expected_fingerprint and _is_cloud_host(urlsplit(base_url).hostname or ""):
         # Once per discovery: later pages carry the first page's fingerprint.
+        # A self-hosted server is checked by /api/tags below: it answers with
+        # its model list without any account.
         _check_api_key(
             base_url,
             headers,

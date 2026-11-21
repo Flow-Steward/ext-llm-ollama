@@ -2,7 +2,7 @@ manifest_version: 2
 lifecycle: {data_schema_version: 1, data_migrations: []}
 extension_id: flowsteward.ollama-remote
 kind: tool_provider
-version: 1.2.4
+version: 1.2.5
 release_stage: active
 display_name: Ollama LLM Provider
 description: |-
@@ -24,7 +24,7 @@ listing:
     structured responses.
   setup_summary: For hosted Ollama, enter the complete API key in the account-scoped LLM provider panel and leave
     the Base URL empty. For your own server, enter its reachable base URL, supply a key if it requires one, and
-    enable the host's private-address policy when needed; then discover and verify models.
+    have an administrator allow a private server's exact origin when needed; then discover and verify models.
 features:
   - tool
   - llm_provider

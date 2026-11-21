@@ -54,9 +54,11 @@ def test_a_self_hosted_endpoint_without_a_key_sends_no_authorization(runtime, ol
 
     _list(runtime, base_url="https://llm.example.com")
 
-    assert [call["url"] for call in ollama.calls[:2]] == [
-        "https://llm.example.com/api/me",
+    # The model list is the self-hosted check: no /api/me, which needs an
+    # ollama.com sign-in on a local Ollama (#29).
+    assert [call["url"] for call in ollama.calls] == [
         "https://llm.example.com/api/tags",
+        "https://llm.example.com/api/show",
     ]
     assert all("Authorization" not in call["headers"] for call in ollama.calls)
 
@@ -232,3 +234,38 @@ def test_a_server_without_the_key_endpoint_still_lists_models(
     ollama.tags = _tags(1)
     ollama.me = RuntimeError(no_verdict)
     assert [m["model_id"] for m in _list(runtime)["models"]] == ["model-0"]
+
+
+@pytest.mark.parametrize(
+    "base_url",
+    [
+        "http://host.docker.internal:11434",
+        "http://192.168.1.20:11434/v1",
+        "https://ollama.example.com",
+        "https://gateway.example/ollama",
+    ],
+)
+@pytest.mark.parametrize("api_key", ["", "self-hosted-key"])
+def test_a_self_hosted_server_is_never_asked_for_an_ollama_com_account(
+    runtime, ollama, base_url: str, api_key: str
+) -> None:
+    # A local Ollama that is not signed in answers 401 on /api/me but serves
+    # /api/tags: "Save connection" must pass on the model list alone (#29).
+    ollama.tags = _tags(2)
+    ollama.me = RuntimeError("authentication_error")
+
+    result = _list(runtime, base_url=base_url, api_key=api_key)
+
+    assert [model["model_id"] for model in result["models"]] == ["model-0", "model-1"]
+    assert ollama.calls_to("/api/me") == []
+
+
+@pytest.mark.parametrize("base_url", ["", "https://ollama.com", "https://www.ollama.com/api"])
+def test_the_hosted_api_still_checks_the_key_first(runtime, ollama, base_url: str) -> None:
+    ollama.tags = _tags(1)
+    ollama.me = RuntimeError("authentication_error")
+
+    with pytest.raises(RuntimeError, match="^authentication_error$"):
+        _list(runtime, base_url=base_url, api_key="half-a-key")
+    assert len(ollama.calls_to("/api/me")) == 1
+    assert ollama.calls_to("/api/tags") == []
